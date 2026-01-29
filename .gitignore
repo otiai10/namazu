@@ -18,6 +18,14 @@ coverage.out
 # Config (実際の設定ファイル)
 config.yaml
 
+# Environment variables (local development)
+.env
+
+# GCP credentials (never commit!)
+service-account.json
+*-serviceaccount.json
+*.json.key
+
 # Agent
 .claude/settings.local.json
 
