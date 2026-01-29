@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/ayanel/namazu/internal/config"
 	"github.com/ayanel/namazu/internal/delivery/webhook"
 	"github.com/ayanel/namazu/internal/source"
+	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 )
 
@@ -127,6 +129,87 @@ func (m *mockRepository) List(ctx context.Context) ([]subscription.Subscription,
 	result := make([]subscription.Subscription, len(m.subscriptions))
 	copy(result, m.subscriptions)
 	return result, nil
+}
+
+func (m *mockRepository) Create(ctx context.Context, sub subscription.Subscription) (string, error) {
+	return "", errors.New("mock repository: create not implemented")
+}
+
+func (m *mockRepository) Get(ctx context.Context, id string) (*subscription.Subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, sub := range m.subscriptions {
+		if sub.ID == id {
+			result := sub
+			return &result, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockRepository) Update(ctx context.Context, id string, sub subscription.Subscription) error {
+	return errors.New("mock repository: update not implemented")
+}
+
+func (m *mockRepository) Delete(ctx context.Context, id string) error {
+	return errors.New("mock repository: delete not implemented")
+}
+
+// mockEventRepository is a mock implementation of store.EventRepository for testing
+type mockEventRepository struct {
+	events    []store.EventRecord
+	createErr error
+	mu        sync.Mutex
+}
+
+func newMockEventRepository() *mockEventRepository {
+	return &mockEventRepository{
+		events: make([]store.EventRecord, 0),
+	}
+}
+
+func (m *mockEventRepository) Create(ctx context.Context, event store.EventRecord) (string, error) {
+	if m.createErr != nil {
+		return "", m.createErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, event)
+	if event.ID != "" {
+		return event.ID, nil
+	}
+	return "generated-id", nil
+}
+
+func (m *mockEventRepository) Get(ctx context.Context, id string) (*store.EventRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, event := range m.events {
+		if event.ID == id {
+			result := event
+			return &result, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockEventRepository) List(ctx context.Context, limit int, startAfter *time.Time) ([]store.EventRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if limit <= 0 || limit > len(m.events) {
+		limit = len(m.events)
+	}
+	result := make([]store.EventRecord, limit)
+	copy(result, m.events[:limit])
+	return result, nil
+}
+
+func (m *mockEventRepository) GetEvents() []store.EventRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]store.EventRecord, len(m.events))
+	copy(result, m.events)
+	return result
 }
 
 // mockEvent implements source.Event for testing
@@ -607,6 +690,210 @@ func TestApp_Integration(t *testing.T) {
 		calls := mockSender.GetSendAllCalls()
 		if len(calls) != 3 {
 			t.Errorf("Expected 3 SendAll calls, got %d", len(calls))
+		}
+	})
+}
+
+// TestApp_EventRepository tests the event repository integration
+func TestApp_EventRepository(t *testing.T) {
+	t.Run("saves event when eventRepo is configured", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+		eventRepo := newMockEventRepository()
+
+		app := NewApp(cfg, repo, WithEventRepository(eventRepo))
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		now := time.Now()
+		event := &mockEvent{
+			id:            "test-event-save-123",
+			eventType:     source.EventTypeEarthquake,
+			severity:      50,
+			source:        "p2pquake",
+			affectedAreas: []string{"Tokyo", "Osaka"},
+			occurredAt:    now,
+			receivedAt:    now,
+			rawJSON:       `{"_id":"test-event-save-123","code":551}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		// Verify event was saved
+		savedEvents := eventRepo.GetEvents()
+		if len(savedEvents) != 1 {
+			t.Fatalf("Expected 1 saved event, got %d", len(savedEvents))
+		}
+
+		saved := savedEvents[0]
+		if saved.ID != "test-event-save-123" {
+			t.Errorf("Expected ID 'test-event-save-123', got '%s'", saved.ID)
+		}
+		if saved.Severity != 50 {
+			t.Errorf("Expected severity 50, got %d", saved.Severity)
+		}
+		if saved.Source != "p2pquake" {
+			t.Errorf("Expected source 'p2pquake', got '%s'", saved.Source)
+		}
+
+		// Verify webhook was also called
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Errorf("Expected 1 SendAll call, got %d", len(calls))
+		}
+	})
+
+	t.Run("continues processing when event save fails", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+		eventRepo := newMockEventRepository()
+		eventRepo.createErr = errors.New("database connection failed")
+
+		app := NewApp(cfg, repo, WithEventRepository(eventRepo))
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		event := &mockEvent{
+			id:       "test-event-fail-456",
+			severity: 60,
+			source:   "p2pquake",
+			rawJSON:  `{"_id":"test-event-fail-456","code":551}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		// Verify no events were saved (due to error)
+		savedEvents := eventRepo.GetEvents()
+		if len(savedEvents) != 0 {
+			t.Errorf("Expected 0 saved events, got %d", len(savedEvents))
+		}
+
+		// Verify webhook was still called despite save failure
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+
+		// Verify correct payload was sent
+		if string(calls[0].payload) != `{"_id":"test-event-fail-456","code":551}` {
+			t.Errorf("Unexpected payload: %s", string(calls[0].payload))
+		}
+	})
+
+	t.Run("backward compatibility - works without eventRepo", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		// Create app without event repository (backward compatible)
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		event := &mockEvent{
+			id:       "test-event-no-repo-789",
+			severity: 70,
+			source:   "p2pquake",
+			rawJSON:  `{"_id":"test-event-no-repo-789","code":551}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		// Verify webhook was called
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+
+		// Verify correct payload was sent
+		if string(calls[0].payload) != `{"_id":"test-event-no-repo-789","code":551}` {
+			t.Errorf("Unexpected payload: %s", string(calls[0].payload))
+		}
+	})
+
+	t.Run("app eventRepo is nil by default", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+		repo := newMockRepository([]subscription.Subscription{})
+
+		app := NewApp(cfg, repo)
+
+		if app.eventRepo != nil {
+			t.Error("Expected eventRepo to be nil by default")
+		}
+	})
+
+	t.Run("WithEventRepository option sets eventRepo", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+		repo := newMockRepository([]subscription.Subscription{})
+		eventRepo := newMockEventRepository()
+
+		app := NewApp(cfg, repo, WithEventRepository(eventRepo))
+
+		if app.eventRepo == nil {
+			t.Error("Expected eventRepo to be set")
+		}
+		if app.eventRepo != eventRepo {
+			t.Error("Expected eventRepo to match provided repository")
 		}
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/ayanel/namazu/internal/delivery/webhook"
 	"github.com/ayanel/namazu/internal/source"
 	"github.com/ayanel/namazu/internal/source/p2pquake"
+	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 )
 
@@ -32,6 +33,18 @@ type App struct {
 	client     Client
 	sender     Sender
 	repository subscription.Repository
+	eventRepo  store.EventRepository // optional, can be nil
+}
+
+// Option is a functional option for configuring the App.
+type Option func(*App)
+
+// WithEventRepository sets the event repository for storing events.
+// If not provided, events will not be persisted.
+func WithEventRepository(repo store.EventRepository) Option {
+	return func(a *App) {
+		a.eventRepo = repo
+	}
 }
 
 // NewApp creates a new application instance with the provided configuration and repository.
@@ -56,13 +69,24 @@ type App struct {
 //	if err := app.Run(context.Background()); err != nil {
 //	    log.Fatal(err)
 //	}
-func NewApp(cfg *config.Config, repo subscription.Repository) *App {
-	return &App{
+//
+// With optional event repository:
+//
+//	eventRepo := store.NewFirestoreEventRepository(firestoreClient)
+//	app := NewApp(cfg, repo, WithEventRepository(eventRepo))
+func NewApp(cfg *config.Config, repo subscription.Repository, opts ...Option) *App {
+	app := &App{
 		config:     cfg,
 		client:     p2pquake.NewClient(cfg.Source.Endpoint),
 		sender:     webhook.NewSender(),
 		repository: repo,
 	}
+
+	for _, opt := range opts {
+		opt(app)
+	}
+
+	return app
 }
 
 // Run starts the application and blocks until the context is cancelled.
@@ -140,6 +164,15 @@ func (a *App) Run(ctx context.Context) error {
 func (a *App) handleEvent(ctx context.Context, event source.Event) {
 	log.Printf("Received earthquake: ID=%s, Severity=%d, Source=%s",
 		event.GetID(), event.GetSeverity(), event.GetSource())
+
+	// Save event to repository (if configured)
+	if a.eventRepo != nil {
+		record := store.EventFromSource(event)
+		if _, err := a.eventRepo.Create(ctx, record); err != nil {
+			log.Printf("Failed to save event: %v", err)
+			// Continue processing even if save fails
+		}
+	}
 
 	// Get current subscriptions (dynamic)
 	subscriptions, err := a.repository.List(ctx)
