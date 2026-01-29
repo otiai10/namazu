@@ -10,6 +10,7 @@ import (
 	"github.com/ayanel/namazu/internal/config"
 	"github.com/ayanel/namazu/internal/delivery/webhook"
 	"github.com/ayanel/namazu/internal/source"
+	"github.com/ayanel/namazu/internal/subscription"
 )
 
 // mockClient is a mock implementation of p2pquake.Client for testing
@@ -103,6 +104,31 @@ func (m *mockSender) GetSendAllCalls() []sendAllCall {
 	return m.sendAllCalls
 }
 
+// mockRepository is a mock implementation of subscription.Repository for testing
+type mockRepository struct {
+	subscriptions []subscription.Subscription
+	listErr       error
+	mu            sync.Mutex
+}
+
+func newMockRepository(subs []subscription.Subscription) *mockRepository {
+	return &mockRepository{
+		subscriptions: subs,
+	}
+}
+
+func (m *mockRepository) List(ctx context.Context) ([]subscription.Subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	// Return a copy
+	result := make([]subscription.Subscription, len(m.subscriptions))
+	copy(result, m.subscriptions)
+	return result, nil
+}
+
 // mockEvent implements source.Event for testing
 type mockEvent struct {
 	id            string
@@ -126,33 +152,35 @@ func (m *mockEvent) GetRawJSON() string         { return m.rawJSON }
 
 // TestNewApp tests the App constructor
 func TestNewApp(t *testing.T) {
-	t.Run("creates app with valid config", func(t *testing.T) {
+	t.Run("creates app with valid config and repository", func(t *testing.T) {
 		cfg := &config.Config{
 			Source: config.SourceConfig{
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
-				{
-					Name: "Webhook 2",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook2.example.com",
-						Secret: "secret2",
-					},
+			},
+			{
+				Name: "Webhook 2",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook2.example.com",
+					Secret: "secret2",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 
 		if app == nil {
 			t.Fatal("NewApp returned nil")
@@ -166,59 +194,28 @@ func TestNewApp(t *testing.T) {
 		if app.sender == nil {
 			t.Error("App sender not initialized")
 		}
-		if len(app.targets) != 2 {
-			t.Errorf("Expected 2 subscription targets, got %d", len(app.targets))
+		if app.repository == nil {
+			t.Error("App repository not initialized")
 		}
 	})
 
-	t.Run("converts subscription configs to targets", func(t *testing.T) {
+	t.Run("works with empty repository", func(t *testing.T) {
 		cfg := &config.Config{
 			Source: config.SourceConfig{
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
-				},
-			},
 		}
 
-		app := NewApp(cfg)
+		repo := newMockRepository([]subscription.Subscription{})
 
-		if len(app.targets) != 1 {
-			t.Fatalf("Expected 1 target, got %d", len(app.targets))
-		}
-		target := app.targets[0]
-		if target.URL != "https://webhook1.example.com" {
-			t.Errorf("Expected URL 'https://webhook1.example.com', got '%s'", target.URL)
-		}
-		if target.Secret != "secret1" {
-			t.Errorf("Expected secret 'secret1', got '%s'", target.Secret)
-		}
-		if target.Name != "Webhook 1" {
-			t.Errorf("Expected name 'Webhook 1', got '%s'", target.Name)
-		}
-	})
+		app := NewApp(cfg, repo)
 
-	t.Run("handles empty subscription list", func(t *testing.T) {
-		cfg := &config.Config{
-			Source: config.SourceConfig{
-				Type:     "p2pquake",
-				Endpoint: "ws://example.com/ws",
-			},
-			Subscriptions: []config.SubscriptionConfig{},
+		if app == nil {
+			t.Fatal("NewApp returned nil")
 		}
-
-		app := NewApp(cfg)
-
-		if len(app.targets) != 0 {
-			t.Errorf("Expected 0 targets, got %d", len(app.targets))
+		if app.repository == nil {
+			t.Error("App repository not initialized")
 		}
 	})
 }
@@ -231,27 +228,29 @@ func TestApp_handleEvent(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
-				{
-					Name: "Webhook 2",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook2.example.com",
-						Secret: "secret2",
-					},
+			},
+			{
+				Name: "Webhook 2",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook2.example.com",
+					Secret: "secret2",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 		mockSender := newMockSender()
 		app.sender = mockSender
 
@@ -285,19 +284,21 @@ func TestApp_handleEvent(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 		mockSender := newMockSender()
 		app.sender = mockSender
 
@@ -338,10 +339,11 @@ func TestApp_handleEvent(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{},
 		}
 
-		app := NewApp(cfg)
+		repo := newMockRepository([]subscription.Subscription{})
+
+		app := NewApp(cfg, repo)
 		mockSender := newMockSender()
 		app.sender = mockSender
 
@@ -373,19 +375,21 @@ func TestApp_Run(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 		mockClient := newMockClient()
 		mockSender := newMockSender()
 		app.client = mockClient
@@ -454,19 +458,21 @@ func TestApp_Run(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 		mockClient := newMockClient()
 		app.client = mockClient
 
@@ -510,19 +516,21 @@ func TestApp_Run(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 		mockClient := newMockClient()
 		mockClient.connectErr = context.DeadlineExceeded
 		app.client = mockClient
@@ -547,19 +555,21 @@ func TestApp_Integration(t *testing.T) {
 				Type:     "p2pquake",
 				Endpoint: "ws://example.com/ws",
 			},
-			Subscriptions: []config.SubscriptionConfig{
-				{
-					Name: "Webhook 1",
-					Delivery: config.DeliveryConfig{
-						Type:   "webhook",
-						URL:    "https://webhook1.example.com",
-						Secret: "secret1",
-					},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
 				},
 			},
 		}
+		repo := newMockRepository(subs)
 
-		app := NewApp(cfg)
+		app := NewApp(cfg, repo)
 		mockClient := newMockClient()
 		mockSender := newMockSender()
 		app.client = mockClient

@@ -9,6 +9,7 @@ import (
 	"github.com/ayanel/namazu/internal/delivery/webhook"
 	"github.com/ayanel/namazu/internal/source"
 	"github.com/ayanel/namazu/internal/source/p2pquake"
+	"github.com/ayanel/namazu/internal/subscription"
 )
 
 // Client interface abstracts the p2pquake.Client for testing
@@ -27,18 +28,18 @@ type Sender interface {
 // It coordinates the P2P地震情報 client and webhook sender,
 // providing a unified interface for the earthquake notification system.
 type App struct {
-	config  *config.Config
-	client  Client
-	sender  Sender
-	targets []webhook.Target
+	config     *config.Config
+	client     Client
+	sender     Sender
+	repository subscription.Repository
 }
 
-// NewApp creates a new application instance with the provided configuration.
-// It initializes the P2P地震情報 WebSocket client and webhook sender,
-// and converts webhook configurations into webhook targets.
+// NewApp creates a new application instance with the provided configuration and repository.
+// It initializes the P2P地震情報 WebSocket client and webhook sender.
 //
 // Parameters:
-//   - cfg: Application configuration containing source and webhook settings
+//   - cfg: Application configuration containing source settings
+//   - repo: Subscription repository for dynamic subscription loading
 //
 // Returns:
 //
@@ -50,26 +51,17 @@ type App struct {
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	app := NewApp(cfg)
+//	repo := subscription.NewStaticRepository(cfg)
+//	app := NewApp(cfg, repo)
 //	if err := app.Run(context.Background()); err != nil {
 //	    log.Fatal(err)
 //	}
-func NewApp(cfg *config.Config) *App {
-	// Convert config.SubscriptionConfig to webhook.Target
-	targets := make([]webhook.Target, len(cfg.Subscriptions))
-	for i, sub := range cfg.Subscriptions {
-		targets[i] = webhook.Target{
-			URL:    sub.Delivery.URL,
-			Secret: sub.Delivery.Secret,
-			Name:   sub.Name,
-		}
-	}
-
+func NewApp(cfg *config.Config, repo subscription.Repository) *App {
 	return &App{
-		config:  cfg,
-		client:  p2pquake.NewClient(cfg.Source.Endpoint),
-		sender:  webhook.NewSender(),
-		targets: targets,
+		config:     cfg,
+		client:     p2pquake.NewClient(cfg.Source.Endpoint),
+		sender:     webhook.NewSender(),
+		repository: repo,
 	}
 }
 
@@ -111,7 +103,6 @@ func NewApp(cfg *config.Config) *App {
 //	}
 func (a *App) Run(ctx context.Context) error {
 	log.Printf("Starting namazu - connecting to %s", a.config.Source.Endpoint)
-	log.Printf("Configured %d subscription(s)", len(a.targets))
 
 	// Connect to P2P地震情報 API
 	if err := a.client.Connect(ctx); err != nil {
@@ -132,11 +123,12 @@ func (a *App) Run(ctx context.Context) error {
 }
 
 // handleEvent processes a single earthquake event and sends it to all webhooks.
-// It extracts the raw JSON payload from the event and uses the webhook sender
-// to deliver it to all configured targets in parallel.
+// It queries the repository for current subscriptions, extracts the raw JSON payload
+// from the event, and uses the webhook sender to deliver it to all targets in parallel.
 //
 // The method logs:
 //   - Incoming event details (ID, severity, source)
+//   - Number of active subscriptions
 //   - Delivery results for each webhook (success/failure, response time)
 //
 // Parameters:
@@ -148,6 +140,15 @@ func (a *App) Run(ctx context.Context) error {
 func (a *App) handleEvent(ctx context.Context, event source.Event) {
 	log.Printf("Received earthquake: ID=%s, Severity=%d, Source=%s",
 		event.GetID(), event.GetSeverity(), event.GetSource())
+
+	// Get current subscriptions (dynamic)
+	subscriptions, err := a.repository.List(ctx)
+	if err != nil {
+		log.Printf("Failed to get subscriptions: %v", err)
+		return
+	}
+
+	log.Printf("Delivering to %d subscription(s)", len(subscriptions))
 
 	// Get raw JSON for webhook payload
 	payload := []byte(event.GetRawJSON())
@@ -161,19 +162,27 @@ func (a *App) handleEvent(ctx context.Context, event source.Event) {
 		}
 	}
 
-	// Send to all subscriptions
-	results := a.sender.SendAll(ctx, a.targets, payload)
+	// Convert subscriptions to webhook targets (for now, only webhook supported)
+	targets := make([]webhook.Target, 0, len(subscriptions))
+	for _, sub := range subscriptions {
+		if sub.Delivery.Type == "webhook" {
+			targets = append(targets, webhook.Target{
+				URL:    sub.Delivery.URL,
+				Secret: sub.Delivery.Secret,
+				Name:   sub.Name,
+			})
+		}
+	}
+
+	// Send to all targets
+	results := a.sender.SendAll(ctx, targets, payload)
 
 	// Log results
 	for i, result := range results {
-		name := a.targets[i].Name
-		if name == "" {
-			name = a.targets[i].URL
-		}
 		if result.Success {
-			log.Printf("Subscription [%s]: delivered in %v", name, result.ResponseTime)
+			log.Printf("Subscription [%s]: delivered in %v", targets[i].Name, result.ResponseTime)
 		} else {
-			log.Printf("Subscription [%s]: failed - %s", name, result.ErrorMessage)
+			log.Printf("Subscription [%s]: failed - %s", targets[i].Name, result.ErrorMessage)
 		}
 	}
 }

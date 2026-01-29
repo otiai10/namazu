@@ -10,6 +10,7 @@ import (
 
 	"github.com/ayanel/namazu/internal/app"
 	"github.com/ayanel/namazu/internal/config"
+	"github.com/ayanel/namazu/internal/subscription"
 )
 
 func main() {
@@ -23,8 +24,11 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Create application
-	application := app.NewApp(cfg)
+	// Create repository
+	repo := subscription.NewStaticRepository(cfg)
+
+	// Create application with repository
+	application := app.NewApp(cfg, repo)
 
 	// Setup context with signal handling
 	ctx, cancel := context.WithCancel(context.Background())
