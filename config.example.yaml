@@ -1,0 +1,16 @@
+source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+  # Production: wss://api.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: my-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/earthquake
+      secret: your-secret-key-here
+    # filter:                    # Optional (Phase 4)
+    #   min_scale: 40            # Minimum seismic intensity
+    #   prefectures:             # Target prefectures
+    #     - 東京都
+    #     - 神奈川県
