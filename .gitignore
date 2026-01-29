@@ -1,0 +1,23 @@
+# Build binaries
+namazu
+dummysubscriber
+
+# Test artifacts
+coverage.out
+*.test
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Config (実際の設定ファイル)
+config.yaml
+
+# Agent
+.claude/settings.local.json
+

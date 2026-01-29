@@ -1,20 +1,22 @@
 #!/bin/bash
 # =============================================================================
-# format.sh - プロジェクト固有のフォーマット処理
-# =============================================================================
-#
-# WARNING: このスクリプトはまだ実装されていません。
-#
-# TODO: このプロジェクトで使用する言語・フレームワークに応じた
-#       lint および format コマンドをここに実装してください。
-#
-# 例:
-#   - JS/TS: pnpm exec prettier --write . && pnpm exec eslint --fix .
-#   - Python: uv run ruff format . && uv run ruff check --fix .
-#   - Go: gofmt -w . && golangci-lint run --fix
-#
+# format.sh - Go プロジェクトのフォーマット処理
 # =============================================================================
 
-echo "TODO: format.sh is not yet implemented for this project."
-echo "@claudecode or @codex,Please implement project-specific formatting logic in this script."
-exit 1
+set -e
+
+echo "Running go fmt..."
+go fmt ./...
+
+echo "Running go vet..."
+go vet ./...
+
+# golangci-lint がインストールされていれば実行
+if command -v golangci-lint &> /dev/null; then
+    echo "Running golangci-lint..."
+    golangci-lint run --fix ./...
+else
+    echo "Note: golangci-lint not found, skipping"
+fi
+
+echo "Format complete!"
