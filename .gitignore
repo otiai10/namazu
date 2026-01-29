@@ -1,6 +1,6 @@
-# Build binaries
-namazu
-dummysubscriber
+# Build binaries (root level only)
+/namazu
+/dummysubscriber
 
 # Test artifacts
 coverage.out
