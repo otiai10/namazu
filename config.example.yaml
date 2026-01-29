@@ -14,3 +14,17 @@ subscriptions:
     #   prefectures:             # Target prefectures
     #     - 東京都
     #     - 神奈川県
+
+# Optional: Enable Firestore storage (Phase 2+)
+# When enabled, subscriptions can be managed dynamically via API
+# and events are persisted for historical queries
+# store:
+#   type: firestore
+#   project_id: your-gcp-project
+#   database: "(default)"             # Optional: Firestore database name
+#   credentials: service-account.json # Optional: Path to service account JSON
+
+# Optional: Enable REST API server (Phase 2+)
+# Provides endpoints for subscription management and event queries
+# api:
+#   addr: ":8080"

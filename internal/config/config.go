@@ -11,6 +11,21 @@ import (
 type Config struct {
 	Source        SourceConfig         `yaml:"source"`
 	Subscriptions []SubscriptionConfig `yaml:"subscriptions"`
+	Store         *StoreConfig         `yaml:"store,omitempty"`
+	API           *APIConfig           `yaml:"api,omitempty"`
+}
+
+// APIConfig represents the REST API server configuration
+type APIConfig struct {
+	Addr string `yaml:"addr"` // e.g., ":8080"
+}
+
+// StoreConfig represents the data store configuration
+type StoreConfig struct {
+	Type        string `yaml:"type"`                  // "firestore"
+	ProjectID   string `yaml:"project_id"`            // GCP Project ID
+	Database    string `yaml:"database,omitempty"`    // Firestore database name (default: "(default)")
+	Credentials string `yaml:"credentials,omitempty"` // Path to service account JSON file
 }
 
 // SourceConfig represents the data source configuration
@@ -41,7 +56,11 @@ type FilterConfig struct {
 
 // Load reads configuration from the specified YAML file
 // Environment variables override file values:
-// - NAMAZU_SOURCE_ENDPOINT overrides source.endpoint
+//   - NAMAZU_SOURCE_ENDPOINT overrides source.endpoint
+//   - NAMAZU_STORE_PROJECT_ID overrides store.project_id
+//   - NAMAZU_STORE_DATABASE overrides store.database
+//   - NAMAZU_STORE_CREDENTIALS overrides store.credentials (for local dev only)
+//   - NAMAZU_API_ADDR overrides api.addr
 func Load(path string) (*Config, error) {
 	// Read file
 	data, err := os.ReadFile(path)
@@ -58,6 +77,34 @@ func Load(path string) (*Config, error) {
 	// Apply environment variable overrides
 	if endpoint := os.Getenv("NAMAZU_SOURCE_ENDPOINT"); endpoint != "" {
 		cfg.Source.Endpoint = endpoint
+	}
+
+	// Apply store overrides
+	if projectID := os.Getenv("NAMAZU_STORE_PROJECT_ID"); projectID != "" {
+		if cfg.Store == nil {
+			cfg.Store = &StoreConfig{Type: "firestore"}
+		}
+		cfg.Store.ProjectID = projectID
+	}
+	if database := os.Getenv("NAMAZU_STORE_DATABASE"); database != "" {
+		if cfg.Store == nil {
+			cfg.Store = &StoreConfig{Type: "firestore"}
+		}
+		cfg.Store.Database = database
+	}
+	if credentials := os.Getenv("NAMAZU_STORE_CREDENTIALS"); credentials != "" {
+		if cfg.Store == nil {
+			cfg.Store = &StoreConfig{Type: "firestore"}
+		}
+		cfg.Store.Credentials = credentials
+	}
+
+	// Apply API address override
+	if apiAddr := os.Getenv("NAMAZU_API_ADDR"); apiAddr != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.Addr = apiAddr
 	}
 
 	// Validate configuration
@@ -84,9 +131,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("source.endpoint is required")
 	}
 
-	// Check at least one subscription exists
-	if len(c.Subscriptions) == 0 {
-		return fmt.Errorf("at least one subscription is required")
+	// Check at least one subscription exists (unless API is enabled for dynamic management)
+	if len(c.Subscriptions) == 0 && c.API == nil {
+		return fmt.Errorf("at least one subscription is required (or enable API for dynamic management)")
 	}
 
 	// Check each subscription configuration
@@ -109,6 +156,46 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("subscription[%d].delivery.type %q is not supported (supported: webhook)", i, sub.Delivery.Type)
 		}
+	}
+
+	// Validate store configuration if present
+	if c.Store != nil {
+		if err := c.Store.Validate(); err != nil {
+			return fmt.Errorf("store: %w", err)
+		}
+	}
+
+	// Validate API configuration if present
+	if c.API != nil {
+		if err := c.API.Validate(); err != nil {
+			return fmt.Errorf("api: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Validate checks if the API configuration is valid
+func (a *APIConfig) Validate() error {
+	if a.Addr == "" {
+		return fmt.Errorf("addr is required")
+	}
+
+	return nil
+}
+
+// Validate checks if the store configuration is valid
+func (s *StoreConfig) Validate() error {
+	if s.Type == "" {
+		return fmt.Errorf("type is required")
+	}
+
+	if s.Type != "firestore" {
+		return fmt.Errorf("unsupported store type: %q (supported: firestore)", s.Type)
+	}
+
+	if s.ProjectID == "" {
+		return fmt.Errorf("project_id is required for firestore")
 	}
 
 	return nil

@@ -420,6 +420,323 @@ func TestValidate_MultipleSubscriptions(t *testing.T) {
 	}
 }
 
+func TestLoad_WithStoreConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+
+store:
+  type: firestore
+  project_id: test-project-id
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Store == nil {
+		t.Fatal("Store config should not be nil")
+	}
+
+	if cfg.Store.Type != "firestore" {
+		t.Errorf("Store.Type = %q, want %q", cfg.Store.Type, "firestore")
+	}
+
+	if cfg.Store.ProjectID != "test-project-id" {
+		t.Errorf("Store.ProjectID = %q, want %q", cfg.Store.ProjectID, "test-project-id")
+	}
+}
+
+func TestLoad_WithoutStoreConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Store != nil {
+		t.Errorf("Store config should be nil when not specified, got %+v", cfg.Store)
+	}
+}
+
+func TestLoad_StoreProjectIDEnvironmentOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+
+store:
+  type: firestore
+  project_id: original-project
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	overrideProjectID := "env-override-project"
+	os.Setenv("NAMAZU_STORE_PROJECT_ID", overrideProjectID)
+	defer os.Unsetenv("NAMAZU_STORE_PROJECT_ID")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Store == nil {
+		t.Fatal("Store config should not be nil")
+	}
+
+	if cfg.Store.ProjectID != overrideProjectID {
+		t.Errorf("Store.ProjectID = %q, want %q (from env var)", cfg.Store.ProjectID, overrideProjectID)
+	}
+}
+
+func TestLoad_StoreProjectIDEnvironmentOverrideCreatesConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Config without store section
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	overrideProjectID := "env-only-project"
+	os.Setenv("NAMAZU_STORE_PROJECT_ID", overrideProjectID)
+	defer os.Unsetenv("NAMAZU_STORE_PROJECT_ID")
+
+	// Environment variable creates a Store config with type "firestore" automatically
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Store == nil {
+		t.Fatal("Store config should be created by env var")
+	}
+	if cfg.Store.Type != "firestore" {
+		t.Errorf("Store.Type = %q, want %q", cfg.Store.Type, "firestore")
+	}
+	if cfg.Store.ProjectID != overrideProjectID {
+		t.Errorf("Store.ProjectID = %q, want %q", cfg.Store.ProjectID, overrideProjectID)
+	}
+}
+
+func TestValidate_StoreConfigValid(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Store: &StoreConfig{
+			Type:      "firestore",
+			ProjectID: "test-project",
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidate_StoreConfigMissingType(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Store: &StoreConfig{
+			Type:      "",
+			ProjectID: "test-project",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error for store missing type")
+	}
+}
+
+func TestValidate_StoreConfigUnsupportedType(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Store: &StoreConfig{
+			Type:      "mongodb",
+			ProjectID: "test-project",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error for unsupported store type")
+	}
+}
+
+func TestValidate_StoreConfigMissingProjectID(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Store: &StoreConfig{
+			Type:      "firestore",
+			ProjectID: "",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error for store missing project_id")
+	}
+}
+
+func TestStoreConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  StoreConfig
+		wantErr bool
+	}{
+		{
+			name: "valid firestore config",
+			config: StoreConfig{
+				Type:      "firestore",
+				ProjectID: "my-project",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing type",
+			config: StoreConfig{
+				Type:      "",
+				ProjectID: "my-project",
+			},
+			wantErr: true,
+		},
+		{
+			name: "unsupported type",
+			config: StoreConfig{
+				Type:      "redis",
+				ProjectID: "my-project",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing project_id",
+			config: StoreConfig{
+				Type:      "firestore",
+				ProjectID: "",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("StoreConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoad_ExampleConfigFile(t *testing.T) {
 	// Test loading the actual example config file from the project root
 	exampleConfigPath := "../../config.example.yaml"
@@ -468,5 +785,203 @@ func TestLoad_ExampleConfigFile(t *testing.T) {
 				cfg.Subscriptions[0].Delivery.Secret,
 				"your-secret-key-here")
 		}
+	}
+}
+
+func TestLoad_WithAPIConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+
+api:
+  addr: ":8080"
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.API == nil {
+		t.Fatal("API config should not be nil")
+	}
+
+	if cfg.API.Addr != ":8080" {
+		t.Errorf("API.Addr = %q, want %q", cfg.API.Addr, ":8080")
+	}
+}
+
+func TestLoad_APIAddrEnvironmentOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+
+api:
+  addr: ":8080"
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	overrideAddr := ":9090"
+	os.Setenv("NAMAZU_API_ADDR", overrideAddr)
+	defer os.Unsetenv("NAMAZU_API_ADDR")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.API == nil {
+		t.Fatal("API config should not be nil")
+	}
+
+	if cfg.API.Addr != overrideAddr {
+		t.Errorf("API.Addr = %q, want %q (from env var)", cfg.API.Addr, overrideAddr)
+	}
+}
+
+func TestValidate_NoSubscriptionsWithAPI(t *testing.T) {
+	// When API is enabled, empty subscriptions should be allowed
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{},
+		API: &APIConfig{
+			Addr: ":8080",
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil for empty subscriptions with API enabled", err)
+	}
+}
+
+func TestValidate_APIConfigMissingAddr(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{},
+		API: &APIConfig{
+			Addr: "",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error for API missing addr")
+	}
+}
+
+func TestAPIConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  APIConfig
+		wantErr bool
+	}{
+		{
+			name: "valid api config",
+			config: APIConfig{
+				Addr: ":8080",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid api config with host",
+			config: APIConfig{
+				Addr: "0.0.0.0:8080",
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing addr",
+			config: APIConfig{
+				Addr: "",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("APIConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoad_Phase2ConfigFile(t *testing.T) {
+	// Test loading the Phase 2 config file from the project root
+	// Phase 2 config uses environment variables for sensitive data
+	phase2ConfigPath := "../../config.phase2.yaml"
+
+	// Set required environment variables (as recommended in production)
+	os.Setenv("NAMAZU_STORE_PROJECT_ID", "test-project")
+	os.Setenv("NAMAZU_STORE_DATABASE", "test-database")
+	defer os.Unsetenv("NAMAZU_STORE_PROJECT_ID")
+	defer os.Unsetenv("NAMAZU_STORE_DATABASE")
+
+	cfg, err := Load(phase2ConfigPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil for phase2 config", err)
+	}
+
+	// Verify Phase 2 config structure
+	if cfg.Source.Type != "p2pquake" {
+		t.Errorf("Phase2 config Source.Type = %q, want %q", cfg.Source.Type, "p2pquake")
+	}
+
+	// Empty subscriptions in Phase 2 mode
+	if len(cfg.Subscriptions) != 0 {
+		t.Errorf("Phase2 config has %d subscriptions, want 0", len(cfg.Subscriptions))
+	}
+
+	// Store should be configured
+	if cfg.Store == nil {
+		t.Fatal("Phase2 config Store should not be nil")
+	}
+
+	if cfg.Store.Type != "firestore" {
+		t.Errorf("Phase2 config Store.Type = %q, want %q", cfg.Store.Type, "firestore")
+	}
+
+	// API should be configured
+	if cfg.API == nil {
+		t.Fatal("Phase2 config API should not be nil")
+	}
+
+	if cfg.API.Addr != ":8080" {
+		t.Errorf("Phase2 config API.Addr = %q, want %q", cfg.API.Addr, ":8080")
 	}
 }
