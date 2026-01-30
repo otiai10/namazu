@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/ayanel/namazu/internal/delivery/webhook"
@@ -13,12 +14,17 @@ import (
 const testSecret = "test-secret-key"
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "9090"
+	}
+
 	http.HandleFunc("/webhook", handleWebhook)
 
-	log.Println("Test webhook server starting on http://localhost:8080/webhook")
+	log.Printf("Test webhook server starting on http://localhost:%s/webhook", port)
 	log.Println("Secret:", testSecret)
 	log.Println("Waiting for earthquake notifications...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func handleWebhook(w http.ResponseWriter, r *http.Request) {
