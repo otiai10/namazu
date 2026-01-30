@@ -29,4 +29,5 @@ service-account.json
 
 # Agent
 .claude/settings.local.json
+knowledge/plans
 

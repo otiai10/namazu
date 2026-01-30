@@ -124,21 +124,157 @@ webhooks:
 
 #### API エンドポイント
 ```
-POST   /api/webhooks          # Webhook 登録
-GET    /api/webhooks          # Webhook 一覧
-GET    /api/webhooks/:id      # Webhook 詳細
-PUT    /api/webhooks/:id      # Webhook 更新
-DELETE /api/webhooks/:id      # Webhook 削除
-GET    /api/earthquakes       # 地震履歴一覧
+POST   /api/subscriptions          # Subscription 登録
+GET    /api/subscriptions          # Subscription 一覧
+GET    /api/subscriptions/:id      # Subscription 詳細
+PUT    /api/subscriptions/:id      # Subscription 更新
+DELETE /api/subscriptions/:id      # Subscription 削除
+GET    /api/events                 # 地震履歴一覧
 ```
 
-### Phase 3: Google OAuth 認証
-**目標**: ユーザー認証とマルチテナント
+### Phase 3: Google Identity Platform 認証
+**目標**: ユーザー認証とマルチテナント（Account Linking 対応）
 
-#### 追加機能
-- Google Identity Platform による認証
-- ユーザーごとの Webhook 管理
-- セッション管理
+#### 設計決定
+- **ADR-001**: User (1) → Subscription (N) の関係を採用
+- **Provider 埋め込み**: LinkedProvider を User ドキュメント内に配列として埋め込み（サブコレクションではない）
+- **Account Linking**: 1ユーザーが複数の Identity Provider をリンク可能
+
+#### データモデル
+
+```go
+// User は認証済みユーザー（Firestore に保存）
+type User struct {
+    ID          string           `firestore:"-"`
+    UID         string           `firestore:"uid"`         // Identity Platform UID
+    Email       string           `firestore:"email"`
+    DisplayName string           `firestore:"displayName"`
+    PictureURL  string           `firestore:"pictureUrl,omitempty"`
+    Plan        string           `firestore:"plan"`        // "free" | "pro"
+    Providers   []LinkedProvider `firestore:"providers"`   // Account Linking
+    CreatedAt   time.Time        `firestore:"createdAt"`
+    UpdatedAt   time.Time        `firestore:"updatedAt"`
+    LastLoginAt time.Time        `firestore:"lastLoginAt"`
+}
+
+// LinkedProvider はリンクされた認証プロバイダー
+type LinkedProvider struct {
+    ProviderID  string    `firestore:"providerId"`  // "google.com", "apple.com", "password"
+    Subject     string    `firestore:"subject"`     // OIDC sub claim（プロバイダーにおけるユーザー識別子）
+    Email       string    `firestore:"email,omitempty"`
+    DisplayName string    `firestore:"displayName,omitempty"`
+    LinkedAt    time.Time `firestore:"linkedAt"`
+}
+```
+
+#### 追加ファイル
+```
+internal/
+├── user/
+│   ├── user.go              # User, LinkedProvider モデル
+│   ├── repository.go        # UserRepository インターフェース
+│   ├── firestore.go         # Firestore 実装
+│   └── firestore_test.go
+├── auth/
+│   ├── auth.go              # Claims, TokenVerifier インターフェース
+│   ├── firebase_auth.go     # Firebase Admin SDK による検証
+│   ├── context.go           # UserContext ヘルパー
+│   ├── middleware.go        # 認証ミドルウェア
+│   └── middleware_test.go
+├── api/
+│   ├── me_handler.go        # /api/me エンドポイント
+│   └── me_handler_test.go
+```
+
+#### 変更ファイル
+```
+internal/
+├── subscription/
+│   ├── subscription.go      # UserID フィールド追加
+│   └── firestore.go         # ListByUserID メソッド追加
+├── api/
+│   ├── handler.go           # 所有権チェック追加
+│   └── router.go            # 認証ミドルウェア適用
+├── config/
+│   └── config.go            # AuthConfig 追加
+cmd/
+└── namazu/
+    └── main.go              # 認証コンポーネント初期化
+```
+
+#### API エンドポイント
+```
+# Public（認証不要）
+GET    /health                    # ヘルスチェック
+GET    /api/events                # 地震履歴一覧
+
+# Protected（認証必須）
+GET    /api/me                    # 現在のユーザープロファイル
+PUT    /api/me                    # プロファイル更新
+GET    /api/me/providers          # リンク済みプロバイダー一覧
+POST   /api/subscriptions         # Subscription 作成（UserID 自動設定）
+GET    /api/subscriptions         # 自分の Subscription 一覧
+GET    /api/subscriptions/:id     # Subscription 詳細（所有権チェック）
+PUT    /api/subscriptions/:id     # Subscription 更新（所有権チェック）
+DELETE /api/subscriptions/:id     # Subscription 削除（所有権チェック）
+```
+
+#### API パス設計方針
+- **ユーザー向け API**: `/api/...` - 一般ユーザーがアクセス
+- **Admin API（将来）**: `/admin-api/...` - 管理者専用エンドポイント
+
+#### 依存関係追加
+```go
+require (
+    firebase.google.com/go/v4 v4.14.0
+)
+```
+
+#### 環境変数
+```
+NAMAZU_AUTH_ENABLED=true
+NAMAZU_AUTH_PROJECT_ID=namazu-live
+NAMAZU_AUTH_CREDENTIALS=path/to/serviceaccount.json  # ローカル開発のみ
+```
+
+#### 実装ステップ
+
+**Step 1: User ドメイン層**
+1. `internal/user/user.go` - User, LinkedProvider モデル（イミュータブル設計）
+2. `internal/user/repository.go` - UserRepository インターフェース
+3. `internal/user/firestore.go` - Firestore 実装
+4. ユニットテスト作成
+
+**Step 2: 認証層**
+1. Firebase Admin SDK 依存追加
+2. `internal/auth/auth.go` - Claims, TokenVerifier
+3. `internal/auth/firebase_auth.go` - JWT 検証
+4. `internal/auth/context.go` - コンテキストヘルパー
+5. `internal/auth/middleware.go` - 認証ミドルウェア
+6. ユニットテスト作成
+
+**Step 3: Subscription 更新**
+1. UserID フィールド追加
+2. ListByUserID メソッド追加
+3. テスト更新
+
+**Step 4: API 更新**
+1. `internal/api/me_handler.go` 作成（/api/me エンドポイント）
+2. 既存ハンドラーに所有権チェック追加
+3. ルーターに認証ミドルウェア適用
+4. インテグレーションテスト作成
+
+**Step 5: 設定・統合**
+1. AuthConfig 追加
+2. main.go 更新
+3. .env.example 更新
+
+#### 検証方法
+1. Firebase Emulator で JWT 発行テスト
+2. 認証なしリクエスト → 401 確認
+3. 認証ありリクエスト → ユーザー作成・取得確認
+4. 他ユーザーの Subscription 操作 → 403 確認
+5. Account Linking のシミュレーション
 
 ### Phase 4: フィルタ・リトライ・制限
 **目標**: 本格運用に向けた機能拡張
@@ -219,18 +355,31 @@ go mod init github.com/ayanel/namazu
 - **Filter**: イベントタイプに応じたフィルタ条件の抽象化
 
 ### User（Phase 3 以降）
+
+> **設計決定**: Account Linking 対応のため、LinkedProvider を埋め込み配列として保持。
+> `GoogleID` ではなく `UID` (Identity Platform 共通ID) + `Providers` 配列を使用。
+> 詳細は ADR-001 および Phase 3 セクション参照。
+
 ```go
 type User struct {
-    ID            string    `datastore:"-"`
-    GoogleID      string    `datastore:"googleId"`
-    Email         string    `datastore:"email"`
-    DisplayName   string    `datastore:"displayName"`
-    PictureURL    string    `datastore:"pictureUrl,omitempty"`
-    Plan          string    `datastore:"plan"`     // "free" | "pro"
-    WebhookLimit  int       `datastore:"webhookLimit"`
-    CreatedAt     time.Time `datastore:"createdAt"`
-    UpdatedAt     time.Time `datastore:"updatedAt"`
-    LastLoginAt   time.Time `datastore:"lastLoginAt"`
+    ID          string           `firestore:"-"`
+    UID         string           `firestore:"uid"`           // Identity Platform UID（全プロバイダー共通）
+    Email       string           `firestore:"email"`
+    DisplayName string           `firestore:"displayName"`
+    PictureURL  string           `firestore:"pictureUrl,omitempty"`
+    Plan        string           `firestore:"plan"`          // "free" | "pro"
+    Providers   []LinkedProvider `firestore:"providers"`     // Account Linking
+    CreatedAt   time.Time        `firestore:"createdAt"`
+    UpdatedAt   time.Time        `firestore:"updatedAt"`
+    LastLoginAt time.Time        `firestore:"lastLoginAt"`
+}
+
+type LinkedProvider struct {
+    ProviderID  string    `firestore:"providerId"`  // "google.com", "apple.com", "password"
+    Subject     string    `firestore:"subject"`     // OIDC sub claim
+    Email       string    `firestore:"email,omitempty"`
+    DisplayName string    `firestore:"displayName,omitempty"`
+    LinkedAt    time.Time `firestore:"linkedAt"`
 }
 ```
 
