@@ -31,3 +31,6 @@ service-account.json
 .claude/settings.local.json
 knowledge/plans
 
+# Node.js
+node_modules/
+
