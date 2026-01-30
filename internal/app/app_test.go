@@ -155,6 +155,19 @@ func (m *mockRepository) Delete(ctx context.Context, id string) error {
 	return errors.New("mock repository: delete not implemented")
 }
 
+func (m *mockRepository) ListByUserID(ctx context.Context, userID string) ([]subscription.Subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Return subscriptions matching userID or with empty userID (legacy)
+	result := make([]subscription.Subscription, 0)
+	for _, sub := range m.subscriptions {
+		if sub.UserID == userID || sub.UserID == "" {
+			result = append(result, sub)
+		}
+	}
+	return result, nil
+}
+
 // mockEventRepository is a mock implementation of store.EventRepository for testing
 type mockEventRepository struct {
 	events    []store.EventRecord
