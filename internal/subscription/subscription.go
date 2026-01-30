@@ -15,9 +15,19 @@ type Subscription struct {
 
 // DeliveryConfig represents how to deliver notifications
 type DeliveryConfig struct {
-	Type   string `json:"type"` // "webhook" | "email" | "slack"
-	URL    string `json:"url,omitempty"`
-	Secret string `json:"secret,omitempty"`
+	Type   string       `json:"type"` // "webhook" | "email" | "slack"
+	URL    string       `json:"url,omitempty"`
+	Secret string       `json:"secret,omitempty"`
+	Retry  *RetryConfig `json:"retry,omitempty" firestore:"retry,omitempty"`
+}
+
+// RetryConfig holds retry settings for delivery.
+// This is a copy of webhook.RetryConfig to avoid circular imports.
+type RetryConfig struct {
+	Enabled    bool `json:"enabled" firestore:"enabled"`
+	MaxRetries int  `json:"max_retries" firestore:"max_retries"`
+	InitialMs  int  `json:"initial_ms" firestore:"initial_ms"`
+	MaxMs      int  `json:"max_ms" firestore:"max_ms"`
 }
 
 // FilterConfig represents event filtering conditions

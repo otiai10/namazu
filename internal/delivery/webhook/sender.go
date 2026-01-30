@@ -18,6 +18,7 @@ type DeliveryResult struct {
 	Success      bool          // True if status code is 2xx
 	ErrorMessage string        // Error description if delivery failed
 	ResponseTime time.Duration // Time taken for the request
+	RetryCount   int           // Number of retry attempts made (0 if succeeded on first try)
 }
 
 // Sender sends webhook notifications with configurable timeout and
