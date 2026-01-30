@@ -13,9 +13,11 @@ import (
 
 	"github.com/ayanel/namazu/internal/api"
 	"github.com/ayanel/namazu/internal/app"
+	"github.com/ayanel/namazu/internal/auth"
 	"github.com/ayanel/namazu/internal/config"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
+	"github.com/ayanel/namazu/internal/user"
 )
 
 func main() {
@@ -24,10 +26,11 @@ func main() {
 	_ = godotenv.Load()
 
 	// Parse command line flags
-	configPath := flag.String("config", "config.yaml", "path to configuration file")
+	configPath := flag.String("config", "", "path to configuration file (optional, uses env vars if not specified)")
 	flag.Parse()
 
 	// Load configuration
+	// If no config file is specified, configuration is loaded entirely from environment variables
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -65,6 +68,35 @@ func main() {
 		log.Println("Using static subscriptions from config file")
 	}
 
+	// Initialize authentication if configured
+	var tokenVerifier auth.TokenVerifier
+	var userRepo user.Repository
+
+	if cfg.Auth != nil && cfg.Auth.Enabled {
+		tenantInfo := ""
+		if cfg.Auth.TenantID != "" {
+			tenantInfo = ", tenant: " + cfg.Auth.TenantID
+		}
+		log.Printf("Initializing Firebase Auth for project: %s%s", cfg.Auth.ProjectID, tenantInfo)
+
+		verifier, err := auth.NewFirebaseTokenVerifierWithConfig(ctx, auth.FirebaseTokenVerifierConfig{
+			ProjectID:       cfg.Auth.ProjectID,
+			CredentialsPath: cfg.Auth.Credentials,
+			TenantID:        cfg.Auth.TenantID,
+		})
+		if err != nil {
+			log.Fatalf("Failed to create Firebase Auth verifier: %v", err)
+		}
+		tokenVerifier = verifier
+		log.Println("Firebase Auth enabled")
+
+		// User repository requires Firestore
+		if firestoreClient == nil {
+			log.Fatal("Auth requires store configuration (Firestore)")
+		}
+		userRepo = user.NewFirestoreRepository(firestoreClient.Client())
+	}
+
 	// Create application with options
 	opts := []app.Option{}
 	if eventRepo != nil {
@@ -76,7 +108,17 @@ func main() {
 	var apiServer *api.Server
 	if cfg.API != nil {
 		log.Printf("Starting REST API server on %s", cfg.API.Addr)
-		apiServer = api.NewServer(cfg.API.Addr, subRepo, eventRepo)
+
+		// Use RouterConfig for auth-aware routing
+		routerCfg := api.RouterConfig{
+			SubscriptionRepo: subRepo,
+			EventRepo:        eventRepo,
+			TokenVerifier:    tokenVerifier,
+			UserRepo:         userRepo,
+		}
+		handler := api.NewRouterWithConfig(routerCfg)
+
+		apiServer = api.NewServerWithHandler(cfg.API.Addr, handler, subRepo, eventRepo)
 		go func() {
 			if err := apiServer.Start(); err != nil {
 				log.Printf("API server error: %v", err)
