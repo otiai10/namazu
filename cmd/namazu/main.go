@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -21,17 +20,12 @@ import (
 )
 
 func main() {
-	// Load .env file if it exists (for local development)
-	// Silently ignore if .env doesn't exist (production uses real env vars)
-	_ = godotenv.Load()
+	// Load .env.localdev file if it exists (for local development)
+	// Silently ignore if file doesn't exist (production uses real env vars)
+	_ = godotenv.Load(".env.localdev")
 
-	// Parse command line flags
-	configPath := flag.String("config", "", "path to configuration file (optional, uses env vars if not specified)")
-	flag.Parse()
-
-	// Load configuration
-	// If no config file is specified, configuration is loaded entirely from environment variables
-	cfg, err := config.Load(*configPath)
+	// Load configuration from environment variables
+	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
