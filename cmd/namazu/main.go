@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -20,6 +21,15 @@ import (
 )
 
 func main() {
+	// Parse command-line flags
+	testMode := flag.Bool("test-mode", false, "Run in test mode (disables authentication)")
+	flag.Parse()
+
+	if *testMode {
+		log.Println("⚠️  TEST MODE: Authentication is DISABLED")
+		log.Println("⚠️  Do not use --test-mode in production!")
+	}
+
 	// Load .env.localdev file if it exists (for local development)
 	// Silently ignore if file doesn't exist (production uses real env vars)
 	_ = godotenv.Load(".env.localdev")
@@ -28,6 +38,11 @@ func main() {
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// In test mode, disable authentication
+	if *testMode && cfg.Auth != nil {
+		cfg.Auth.Enabled = false
 	}
 
 	// Setup context with signal handling

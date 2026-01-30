@@ -50,6 +50,10 @@
           {
             "type": "command",
             "command": "./scripts/test.sh"
+          },
+          {
+            "type": "command",
+            "command": "./scripts/e2e-test.sh real"
           }
         ]
       }

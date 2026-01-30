@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/option"
@@ -25,15 +27,23 @@ type FirestoreConfig struct {
 	Credentials string // Path to service account JSON file (optional)
 }
 
-// NewFirestoreClient creates a new Firestore client
+// NewFirestoreClient creates a new Firestore client.
+// If FIRESTORE_EMULATOR_HOST is set, the client will connect to the emulator.
 func NewFirestoreClient(ctx context.Context, cfg FirestoreConfig) (*FirestoreClient, error) {
 	if cfg.ProjectID == "" {
 		return nil, fmt.Errorf("projectID is required")
 	}
 
+	// Check if using emulator
+	emulatorHost := os.Getenv("FIRESTORE_EMULATOR_HOST")
+	if emulatorHost != "" {
+		log.Printf("🔧 Using Firestore Emulator at %s", emulatorHost)
+	}
+
 	// Build client options
 	var opts []option.ClientOption
-	if cfg.Credentials != "" {
+	if cfg.Credentials != "" && emulatorHost == "" {
+		// Only use credentials file when not using emulator
 		opts = append(opts, option.WithCredentialsFile(cfg.Credentials))
 	}
 

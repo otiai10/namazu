@@ -284,6 +284,117 @@ NAMAZU_AUTH_CREDENTIALS=path/to/serviceaccount.json  # ローカル開発のみ
 - 失敗時のリトライ（指数バックオフ、設定可能）
 - ユーザーごとの制限（Webhook 数上限、レートリミット）
 
+---
+
+## Phase 4.1 詳細実装計画: フィルタ適用
+
+### 概要
+Subscription ごとに設定されたフィルタ条件に基づいて、イベント配信をフィルタリングする。
+
+### 現状
+- `FilterConfig` は既に定義済み（`internal/subscription/subscription.go`）
+- `EventRecord` に `Severity` と `AffectedAreas` が存在
+- `handleEvent()` でフィルタ適用ロジックが**未実装**
+
+### 変更ファイル
+
+#### 1. `internal/subscription/filter.go` (新規)
+フィルタマッチングロジックを実装。
+
+```go
+package subscription
+
+import "github.com/ayanel/namazu/internal/source"
+
+// MatchesFilter checks if an event matches the subscription's filter criteria.
+// Returns true if:
+//   - Filter is nil (no filter = match all)
+//   - Event passes all configured filter conditions
+func (f *FilterConfig) Matches(event source.Event) bool {
+    if f == nil {
+        return true // No filter = match all
+    }
+
+    // Check MinScale
+    if f.MinScale > 0 && event.GetSeverity() < f.MinScale {
+        return false
+    }
+
+    // Check Prefectures
+    if len(f.Prefectures) > 0 {
+        if !matchesPrefectures(f.Prefectures, event.GetAffectedAreas()) {
+            return false
+        }
+    }
+
+    return true
+}
+
+// matchesPrefectures checks if any affected area matches the filter prefectures
+func matchesPrefectures(filterPrefectures, affectedAreas []string) bool {
+    for _, area := range affectedAreas {
+        for _, pref := range filterPrefectures {
+            if area == pref || strings.HasPrefix(area, pref) {
+                return true
+            }
+        }
+    }
+    return false
+}
+```
+
+#### 2. `internal/app/app.go` (修正)
+`handleEvent()` にフィルタ適用ロジックを追加。
+
+```go
+// 変更箇所: targets 生成部分
+targets := make([]webhook.Target, 0, len(subscriptions))
+for _, sub := range subscriptions {
+    if sub.Delivery.Type == "webhook" {
+        // ★ フィルタチェックを追加
+        if sub.Filter != nil && !sub.Filter.Matches(event) {
+            log.Printf("Subscription [%s]: filtered out (MinScale=%d, Prefectures=%v)",
+                sub.Name, sub.Filter.MinScale, sub.Filter.Prefectures)
+            continue
+        }
+        targets = append(targets, webhook.Target{
+            URL:    sub.Delivery.URL,
+            Secret: sub.Delivery.Secret,
+            Name:   sub.Name,
+        })
+    }
+}
+```
+
+#### 3. `internal/subscription/filter_test.go` (新規)
+フィルタロジックのユニットテスト。
+
+### テストケース
+1. フィルタなし → 全イベント通過
+2. MinScale=40 → 震度4未満は除外
+3. Prefectures=["東京都"] → 東京都以外は除外
+4. MinScale + Prefectures 複合条件
+5. 空の AffectedAreas → Prefectures フィルタ通過しない
+
+### 検証方法
+```bash
+# ユニットテスト
+go test ./internal/subscription/... -v -run TestFilter
+
+# 統合テスト（サンドボックス環境）
+source .env.test && go run ./cmd/namazu/
+# → 震度10のイベントが MinScale=40 の Subscription に配信されないことを確認
+```
+
+### 実装ステップ
+1. `internal/subscription/filter.go` 作成
+2. `internal/subscription/filter_test.go` 作成
+3. `internal/app/app.go` の `handleEvent()` 修正
+4. `internal/app/app_test.go` にフィルタテスト追加
+5. 統合テスト実施
+
+---
+
 ### Phase 5: Web UI・課金モデル
 **目標**: 一般公開サービス化
 

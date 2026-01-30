@@ -6,6 +6,25 @@
 - Use `code-simplifier:code-simplifier` plugin to keep our source code always simple and clean.
 - Use `frontend-design` skill when we need implement graphical user interface.
 
+# Autonomous Testing (IMPORTANT)
+
+**You (Claude Code) can and should test autonomously.**
+
+See: `./knowledge/decisions/002-autonomous-testing-setup.md`
+
+```bash
+# Run E2E tests without user intervention
+./scripts/e2e-test.sh
+```
+
+This allows you to:
+- Start the server with `--test-mode` (auth disabled)
+- Execute API tests
+- Verify behavior changes
+- Clean up automatically
+
+Always run `./scripts/e2e-test.sh` after implementing features or fixing bugs to verify functionality.
+
 # Our knowledge base
 
 Following knowledge should be stored under `./knowledge` folder:
