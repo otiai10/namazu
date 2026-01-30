@@ -7,6 +7,7 @@ import (
 // Subscription represents a notification subscription
 type Subscription struct {
 	ID       string         `json:"id,omitempty"`
+	UserID   string         `json:"userId,omitempty"` // Owner's user ID
 	Name     string         `json:"name"`
 	Delivery DeliveryConfig `json:"delivery"`
 	Filter   *FilterConfig  `json:"filter,omitempty"`
@@ -29,6 +30,9 @@ type FilterConfig struct {
 type Repository interface {
 	// List returns all active subscriptions
 	List(ctx context.Context) ([]Subscription, error)
+
+	// ListByUserID returns all subscriptions for a specific user
+	ListByUserID(ctx context.Context, userID string) ([]Subscription, error)
 
 	// Create creates a new subscription and returns its ID
 	Create(ctx context.Context, sub Subscription) (string, error)

@@ -442,6 +442,56 @@ func TestStaticRepository_ImplementsRepository(t *testing.T) {
 	var _ Repository = (*StaticRepository)(nil)
 }
 
+func TestStaticRepository_ListByUserID(t *testing.T) {
+	t.Run("returns empty slice for any userID", func(t *testing.T) {
+		cfg := &config.Config{
+			Subscriptions: []config.SubscriptionConfig{
+				{
+					Name: "Webhook 1",
+					Delivery: config.DeliveryConfig{
+						Type:   "webhook",
+						URL:    "https://webhook1.example.com",
+						Secret: "secret1",
+					},
+				},
+			},
+		}
+
+		repo := NewStaticRepository(cfg)
+		ctx := context.Background()
+
+		subs, err := repo.ListByUserID(ctx, "any-user-id")
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if subs == nil {
+			t.Error("Expected non-nil slice, got nil")
+		}
+		if len(subs) != 0 {
+			t.Errorf("Expected 0 subscriptions (static repo doesn't support user-scoped queries), got %d", len(subs))
+		}
+	})
+
+	t.Run("returns empty slice for empty userID", func(t *testing.T) {
+		cfg := &config.Config{
+			Subscriptions: []config.SubscriptionConfig{},
+		}
+
+		repo := NewStaticRepository(cfg)
+		ctx := context.Background()
+
+		subs, err := repo.ListByUserID(ctx, "")
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(subs) != 0 {
+			t.Errorf("Expected 0 subscriptions, got %d", len(subs))
+		}
+	})
+}
+
 func TestErrReadOnly(t *testing.T) {
 	t.Run("error message is correct", func(t *testing.T) {
 		if ErrReadOnly.Error() != "static repository is read-only" {

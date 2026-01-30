@@ -65,6 +65,36 @@ func (r *FirestoreRepository) List(ctx context.Context) ([]Subscription, error) 
 	return subscriptions, nil
 }
 
+// ListByUserID returns all subscriptions for a specific user
+//
+// Parameters:
+//   - ctx: Context for cancellation control
+//   - userID: User ID to filter subscriptions
+//
+// Returns:
+//   - Slice of subscriptions belonging to the user
+//   - Error if Firestore operation fails
+func (r *FirestoreRepository) ListByUserID(ctx context.Context, userID string) ([]Subscription, error) {
+	docs, err := r.client.Collection(collectionName).
+		Where("userId", "==", userID).
+		Documents(ctx).
+		GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list subscriptions by user: %w", err)
+	}
+
+	subscriptions := make([]Subscription, 0, len(docs))
+	for _, doc := range docs {
+		sub, err := documentToSubscription(doc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert document %s: %w", doc.Ref.ID, err)
+		}
+		subscriptions = append(subscriptions, sub)
+	}
+
+	return subscriptions, nil
+}
+
 // Create creates a new subscription and returns its ID
 //
 // Parameters:
@@ -172,7 +202,8 @@ func (r *FirestoreRepository) Delete(ctx context.Context, id string) error {
 // subscriptionToMap converts a Subscription to a map for Firestore storage
 func subscriptionToMap(sub Subscription) map[string]interface{} {
 	data := map[string]interface{}{
-		"name": sub.Name,
+		"userId": sub.UserID,
+		"name":   sub.Name,
 		"delivery": map[string]interface{}{
 			"type":   sub.Delivery.Type,
 			"url":    sub.Delivery.URL,
@@ -196,6 +227,10 @@ func documentToSubscription(doc *firestore.DocumentSnapshot) (Subscription, erro
 
 	sub := Subscription{
 		ID: doc.Ref.ID,
+	}
+
+	if userID, ok := data["userId"].(string); ok {
+		sub.UserID = userID
 	}
 
 	if name, ok := data["name"].(string); ok {

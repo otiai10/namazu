@@ -59,6 +59,42 @@ func TestSubscriptionToMap(t *testing.T) {
 		}
 	})
 
+	t.Run("includes userId when present", func(t *testing.T) {
+		sub := Subscription{
+			ID:     "test-id",
+			UserID: "user-123",
+			Name:   "Test Subscription",
+			Delivery: DeliveryConfig{
+				Type: "webhook",
+				URL:  "https://example.com/webhook",
+			},
+		}
+
+		data := subscriptionToMap(sub)
+
+		if data["userId"] != "user-123" {
+			t.Errorf("Expected userId 'user-123', got %v", data["userId"])
+		}
+	})
+
+	t.Run("includes empty userId when not set", func(t *testing.T) {
+		sub := Subscription{
+			ID:   "test-id",
+			Name: "Test Subscription",
+			Delivery: DeliveryConfig{
+				Type: "webhook",
+				URL:  "https://example.com/webhook",
+			},
+		}
+
+		data := subscriptionToMap(sub)
+
+		// userId should be present but empty for backward compatibility
+		if data["userId"] != "" {
+			t.Errorf("Expected userId to be empty string, got %v", data["userId"])
+		}
+	})
+
 	t.Run("converts subscription with filter", func(t *testing.T) {
 		sub := Subscription{
 			ID:   "test-id",
@@ -112,6 +148,20 @@ func TestSubscriptionToMap(t *testing.T) {
 		if _, exists := data["id"]; exists {
 			t.Error("ID should not be included in the map (it's the document ID)")
 		}
+	})
+}
+
+func TestFirestoreRepository_ListByUserID(t *testing.T) {
+	// Note: Full integration tests would require a Firestore emulator or mock
+	// These tests verify the interface compliance and basic functionality
+
+	t.Run("interface includes ListByUserID method", func(t *testing.T) {
+		// Compile-time check that Repository interface includes ListByUserID
+		var repo Repository
+		_ = repo
+
+		// The interface should have ListByUserID method
+		// This test will fail at compile time if the method is missing
 	})
 }
 

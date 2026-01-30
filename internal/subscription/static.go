@@ -92,8 +92,9 @@ func (r *StaticRepository) Get(ctx context.Context, id string) (*Subscription, e
 		if sub.ID == id {
 			// Return a copy to prevent mutation
 			result := Subscription{
-				ID:   sub.ID,
-				Name: sub.Name,
+				ID:     sub.ID,
+				UserID: sub.UserID,
+				Name:   sub.Name,
 				Delivery: DeliveryConfig{
 					Type:   sub.Delivery.Type,
 					URL:    sub.Delivery.URL,
@@ -137,4 +138,19 @@ func (r *StaticRepository) Update(ctx context.Context, id string, sub Subscripti
 //   - ErrReadOnly error
 func (r *StaticRepository) Delete(ctx context.Context, id string) error {
 	return fmt.Errorf("%w: cannot delete subscription %s", ErrReadOnly, id)
+}
+
+// ListByUserID returns an empty slice for StaticRepository.
+// Static repository doesn't support user-scoped queries as subscriptions
+// are loaded from configuration files without user association.
+//
+// Parameters:
+//   - ctx: Context for cancellation control (not used)
+//   - userID: User ID to filter (not used)
+//
+// Returns:
+//   - Empty slice of subscriptions
+//   - nil error (always succeeds)
+func (r *StaticRepository) ListByUserID(ctx context.Context, userID string) ([]Subscription, error) {
+	return []Subscription{}, nil
 }
