@@ -199,6 +199,12 @@ func (a *App) handleEvent(ctx context.Context, event source.Event) {
 	targets := make([]webhook.Target, 0, len(subscriptions))
 	for _, sub := range subscriptions {
 		if sub.Delivery.Type == "webhook" {
+			// Check filter - skip if event doesn't match
+			if sub.Filter != nil && !sub.Filter.Matches(event) {
+				log.Printf("Subscription [%s]: filtered out (MinScale=%d, Prefectures=%v)",
+					sub.Name, sub.Filter.MinScale, sub.Filter.Prefectures)
+				continue
+			}
 			targets = append(targets, webhook.Target{
 				URL:    sub.Delivery.URL,
 				Secret: sub.Delivery.Secret,

@@ -11,6 +11,7 @@ import (
 	"github.com/ayanel/namazu/internal/config"
 	"github.com/ayanel/namazu/internal/delivery/webhook"
 	"github.com/ayanel/namazu/internal/source"
+	"github.com/ayanel/namazu/internal/source/p2pquake"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 )
@@ -907,6 +908,278 @@ func TestApp_EventRepository(t *testing.T) {
 		}
 		if app.eventRepo != eventRepo {
 			t.Error("Expected eventRepo to match provided repository")
+		}
+	})
+}
+
+// TestApp_Filter tests the subscription filter integration
+func TestApp_Filter(t *testing.T) {
+	t.Run("subscription with filter passes matching events", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Create subscription with MinScale=Scale4 (40) filter
+		// ScaleToSeverity(Scale4) = 40, so events with severity >= 40 should pass
+		subs := []subscription.Subscription{
+			{
+				Name: "Filtered Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+				Filter: &subscription.FilterConfig{
+					MinScale: p2pquake.Scale4, // Scale4 = 40, maps to severity 40
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		// Event with severity 50 (above Scale4's severity of 40)
+		event := &mockEvent{
+			id:            "test-filter-1",
+			severity:      50,
+			source:        "p2pquake",
+			affectedAreas: []string{"東京都"},
+			rawJSON:       `{"_id":"test-filter-1"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+		if len(calls[0].targets) != 1 {
+			t.Errorf("Expected 1 target (filter passed), got %d", len(calls[0].targets))
+		}
+	})
+
+	t.Run("subscription with filter blocks non-matching events (too low severity)", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Create subscription with MinScale=Scale5Weak (45) filter
+		// ScaleToSeverity(Scale5Weak) = 50, so events with severity < 50 should be blocked
+		subs := []subscription.Subscription{
+			{
+				Name: "High Severity Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+				Filter: &subscription.FilterConfig{
+					MinScale: p2pquake.Scale5Weak, // Scale5Weak = 45, maps to severity 50
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		// Event with severity 40 (below Scale5Weak's severity of 50)
+		event := &mockEvent{
+			id:            "test-filter-2",
+			severity:      40,
+			source:        "p2pquake",
+			affectedAreas: []string{"東京都"},
+			rawJSON:       `{"_id":"test-filter-2"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+		if len(calls[0].targets) != 0 {
+			t.Errorf("Expected 0 targets (filter blocked), got %d", len(calls[0].targets))
+		}
+	})
+
+	t.Run("subscription with filter blocks non-matching events (wrong prefecture)", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Create subscription with prefecture filter for Osaka only
+		subs := []subscription.Subscription{
+			{
+				Name: "Osaka Only Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+				Filter: &subscription.FilterConfig{
+					Prefectures: []string{"大阪府"},
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		// Event affecting Tokyo only (not Osaka)
+		event := &mockEvent{
+			id:            "test-filter-3",
+			severity:      60,
+			source:        "p2pquake",
+			affectedAreas: []string{"東京都"},
+			rawJSON:       `{"_id":"test-filter-3"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+		if len(calls[0].targets) != 0 {
+			t.Errorf("Expected 0 targets (filter blocked - wrong prefecture), got %d", len(calls[0].targets))
+		}
+	})
+
+	t.Run("multiple subscriptions with different filters - some pass, some blocked", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Create multiple subscriptions with different filters
+		subs := []subscription.Subscription{
+			{
+				Name: "No Filter Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+				},
+				// No filter - should always pass
+			},
+			{
+				Name: "Low Threshold Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook2.example.com",
+					Secret: "secret2",
+				},
+				Filter: &subscription.FilterConfig{
+					MinScale: p2pquake.Scale4, // Scale4 = 40, maps to severity 40
+				},
+			},
+			{
+				Name: "High Threshold Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook3.example.com",
+					Secret: "secret3",
+				},
+				Filter: &subscription.FilterConfig{
+					MinScale: p2pquake.Scale6Weak, // Scale6Weak = 55, maps to severity 70
+				},
+			},
+			{
+				Name: "Tokyo Only Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook4.example.com",
+					Secret: "secret4",
+				},
+				Filter: &subscription.FilterConfig{
+					Prefectures: []string{"東京都"},
+				},
+			},
+			{
+				Name: "Kyoto Only Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook5.example.com",
+					Secret: "secret5",
+				},
+				Filter: &subscription.FilterConfig{
+					Prefectures: []string{"京都府"},
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		// Event with severity 50, affecting Tokyo
+		// Should pass: No Filter, Low Threshold (50 >= 40), Tokyo Only
+		// Should block: High Threshold (50 < 70), Kyoto Only (Tokyo != Kyoto)
+		event := &mockEvent{
+			id:            "test-filter-4",
+			severity:      50,
+			source:        "p2pquake",
+			affectedAreas: []string{"東京都"},
+			rawJSON:       `{"_id":"test-filter-4"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+		if len(calls[0].targets) != 3 {
+			t.Errorf("Expected 3 targets (No Filter, Low Threshold, Tokyo Only), got %d", len(calls[0].targets))
+		}
+
+		// Verify which webhooks were included
+		targetURLs := make(map[string]bool)
+		for _, target := range calls[0].targets {
+			targetURLs[target.URL] = true
+		}
+
+		expectedURLs := []string{
+			"https://webhook1.example.com", // No Filter
+			"https://webhook2.example.com", // Low Threshold
+			"https://webhook4.example.com", // Tokyo Only
+		}
+		for _, url := range expectedURLs {
+			if !targetURLs[url] {
+				t.Errorf("Expected target %s to be included, but it was not", url)
+			}
+		}
+
+		blockedURLs := []string{
+			"https://webhook3.example.com", // High Threshold
+			"https://webhook5.example.com", // Kyoto Only
+		}
+		for _, url := range blockedURLs {
+			if targetURLs[url] {
+				t.Errorf("Expected target %s to be blocked, but it was included", url)
+			}
 		}
 	})
 }
