@@ -1183,3 +1183,157 @@ func TestApp_Filter(t *testing.T) {
 		}
 	})
 }
+
+// TestApp_Retry tests the retry functionality with per-subscription retry config
+func TestApp_Retry(t *testing.T) {
+	t.Run("uses SendAll when no retry config is present", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Subscriptions without retry config
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+					// No Retry config
+				},
+			},
+			{
+				Name: "Webhook 2",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook2.example.com",
+					Secret: "secret2",
+					// No Retry config
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		event := &mockEvent{
+			id:       "test-retry-1",
+			severity: 50,
+			source:   "p2pquake",
+			rawJSON:  `{"_id":"test-retry-1"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		// Should use SendAll (backward compatible)
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+		if len(calls[0].targets) != 2 {
+			t.Errorf("Expected 2 targets, got %d", len(calls[0].targets))
+		}
+	})
+
+	t.Run("uses SendAll when retry is disabled", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Subscriptions with retry config but disabled
+		subs := []subscription.Subscription{
+			{
+				Name: "Webhook 1",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+					Retry: &subscription.RetryConfig{
+						Enabled:    false, // Disabled
+						MaxRetries: 3,
+						InitialMs:  1000,
+						MaxMs:      60000,
+					},
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		event := &mockEvent{
+			id:       "test-retry-2",
+			severity: 50,
+			source:   "p2pquake",
+			rawJSON:  `{"_id":"test-retry-2"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		// Should use SendAll since retry is disabled
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+	})
+
+	t.Run("subscription with retry config uses per-subscription delivery", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		// Subscription with enabled retry config
+		subs := []subscription.Subscription{
+			{
+				Name: "Retrying Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://webhook1.example.com",
+					Secret: "secret1",
+					Retry: &subscription.RetryConfig{
+						Enabled:    true, // Enabled
+						MaxRetries: 3,
+						InitialMs:  100,
+						MaxMs:      1000,
+					},
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		event := &mockEvent{
+			id:       "test-retry-3",
+			severity: 50,
+			source:   "p2pquake",
+			rawJSON:  `{"_id":"test-retry-3"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		// Should NOT use SendAll since retry is enabled (uses per-subscription delivery)
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 0 {
+			t.Errorf("Expected 0 SendAll calls when retry is enabled, got %d", len(calls))
+		}
+	})
+}

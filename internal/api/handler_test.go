@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/ayanel/namazu/internal/auth"
+	"github.com/ayanel/namazu/internal/quota"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
+	"github.com/ayanel/namazu/internal/user"
 )
 
 // mockSubscriptionRepo implements subscription.Repository for testing
@@ -844,5 +847,323 @@ func TestListSubscriptions_FiltersToUserOwnSubscriptions(t *testing.T) {
 		if sub.ID == "sub-other" {
 			t.Error("should not return other user's subscription")
 		}
+	}
+}
+
+// quotaUserRepo implements user.Repository for quota testing
+// (separate from mockUserRepo in me_handler_test.go to avoid conflicts)
+type quotaUserRepo struct {
+	users    map[string]*user.User
+	uidIndex map[string]string // uid -> id
+}
+
+func newQuotaUserRepo() *quotaUserRepo {
+	return &quotaUserRepo{
+		users:    make(map[string]*user.User),
+		uidIndex: make(map[string]string),
+	}
+}
+
+func (m *quotaUserRepo) Create(ctx context.Context, u user.User) (string, error) {
+	id := "user-" + u.UID
+	u.ID = id
+	m.users[id] = &u
+	m.uidIndex[u.UID] = id
+	return id, nil
+}
+
+func (m *quotaUserRepo) Get(ctx context.Context, id string) (*user.User, error) {
+	u, ok := m.users[id]
+	if !ok {
+		return nil, nil
+	}
+	return u, nil
+}
+
+func (m *quotaUserRepo) GetByUID(ctx context.Context, uid string) (*user.User, error) {
+	id, ok := m.uidIndex[uid]
+	if !ok {
+		return nil, nil
+	}
+	return m.users[id], nil
+}
+
+func (m *quotaUserRepo) Update(ctx context.Context, id string, u user.User) error {
+	u.ID = id
+	m.users[id] = &u
+	return nil
+}
+
+func (m *quotaUserRepo) UpdateLastLogin(ctx context.Context, id string, t time.Time) error {
+	return nil
+}
+
+func (m *quotaUserRepo) AddProvider(ctx context.Context, id string, provider user.LinkedProvider) error {
+	return nil
+}
+
+func (m *quotaUserRepo) RemoveProvider(ctx context.Context, id string, providerID string) error {
+	return nil
+}
+
+// mockQuotaChecker implements quota.QuotaChecker for testing
+type mockQuotaChecker struct {
+	canCreate bool
+	err       error
+}
+
+func (m *mockQuotaChecker) CanCreateSubscription(ctx context.Context, userID, plan string) (bool, error) {
+	return m.canCreate, m.err
+}
+
+// Tests for quota checking in CreateSubscription
+
+func TestCreateSubscription_Returns403WhenQuotaExceeded(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	userRepo := newQuotaUserRepo()
+
+	// Create a free user using the repo's Create method to properly index
+	testUser := user.User{
+		UID:  "test-user-uid",
+		Plan: user.PlanFree,
+	}
+	userRepo.Create(context.Background(), testUser)
+
+	// Create quota checker that denies creation
+	quotaChecker := &mockQuotaChecker{canCreate: false, err: nil}
+
+	handler := NewHandlerWithQuota(subRepo, eventRepo, userRepo, quotaChecker)
+
+	claims := &auth.Claims{
+		UID:   testUser.UID,
+		Email: "test@example.com",
+	}
+
+	body := `{
+		"name": "New Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+
+	var errResp ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("failed to unmarshal error response: %v", err)
+	}
+
+	if errResp.Error != "Subscription limit reached for your plan" {
+		t.Errorf("expected quota error message, got %s", errResp.Error)
+	}
+}
+
+func TestCreateSubscription_AllowsCreationWithinQuota(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	userRepo := newQuotaUserRepo()
+
+	// Create a free user using the repo's Create method to properly index
+	testUser := user.User{
+		UID:  "test-user-uid",
+		Plan: user.PlanFree,
+	}
+	userRepo.Create(context.Background(), testUser)
+
+	// Create quota checker that allows creation
+	quotaChecker := &mockQuotaChecker{canCreate: true, err: nil}
+
+	handler := NewHandlerWithQuota(subRepo, eventRepo, userRepo, quotaChecker)
+
+	claims := &auth.Claims{
+		UID:   testUser.UID,
+		Email: "test@example.com",
+	}
+
+	body := `{
+		"name": "New Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateSubscription_SkipsQuotaCheckWithoutAuth(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	// Use basic handler without quota (test mode scenario)
+	handler := NewHandler(subRepo, eventRepo)
+
+	body := `{
+		"name": "Test Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	// Should succeed without auth context (backward compatibility / test mode)
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, rec.Code)
+	}
+}
+
+func TestCreateSubscription_Returns500OnQuotaCheckError(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	userRepo := newQuotaUserRepo()
+
+	// Create a free user using the repo's Create method to properly index
+	testUser := user.User{
+		UID:  "test-user-uid",
+		Plan: user.PlanFree,
+	}
+	userRepo.Create(context.Background(), testUser)
+
+	// Create quota checker that returns an error
+	quotaChecker := &mockQuotaChecker{canCreate: false, err: errors.New("database error")}
+
+	handler := NewHandlerWithQuota(subRepo, eventRepo, userRepo, quotaChecker)
+
+	claims := &auth.Claims{
+		UID:   testUser.UID,
+		Email: "test@example.com",
+	}
+
+	body := `{
+		"name": "New Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
+	}
+}
+
+func TestCreateSubscription_UsesUserPlanFromUserRepo(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	userRepo := newQuotaUserRepo()
+
+	// Create a pro user (should have higher limits)
+	proUser := user.User{
+		UID:  "pro-user-uid",
+		Plan: user.PlanPro,
+	}
+	userRepo.Create(context.Background(), proUser)
+
+	// Use real quota checker to verify plan is retrieved correctly
+	quotaChecker := quota.NewChecker(subRepo)
+
+	handler := NewHandlerWithQuota(subRepo, eventRepo, userRepo, quotaChecker)
+
+	claims := &auth.Claims{
+		UID:   proUser.UID,
+		Email: "pro@example.com",
+	}
+
+	body := `{
+		"name": "New Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateSubscription_DefaultsToFreePlanWhenUserNotFound(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	userRepo := newQuotaUserRepo() // Empty user repo
+
+	// Pre-populate subscriptions to hit free limit (3)
+	subRepo.subscriptions["sub-1"] = subscription.Subscription{ID: "sub-1", UserID: "unknown-uid"}
+	subRepo.subscriptions["sub-2"] = subscription.Subscription{ID: "sub-2", UserID: "unknown-uid"}
+	subRepo.subscriptions["sub-3"] = subscription.Subscription{ID: "sub-3", UserID: "unknown-uid"}
+
+	// Use real quota checker
+	quotaChecker := quota.NewChecker(subRepo)
+
+	handler := NewHandlerWithQuota(subRepo, eventRepo, userRepo, quotaChecker)
+
+	claims := &auth.Claims{
+		UID:   "unknown-uid", // User not in repo
+		Email: "unknown@example.com",
+	}
+
+	body := `{
+		"name": "New Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	// Should be forbidden because free limit (3) is already reached
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
 	}
 }

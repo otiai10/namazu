@@ -15,6 +15,7 @@ import (
 	"github.com/ayanel/namazu/internal/app"
 	"github.com/ayanel/namazu/internal/auth"
 	"github.com/ayanel/namazu/internal/config"
+	"github.com/ayanel/namazu/internal/quota"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 	"github.com/ayanel/namazu/internal/user"
@@ -80,6 +81,7 @@ func main() {
 	// Initialize authentication if configured
 	var tokenVerifier auth.TokenVerifier
 	var userRepo user.Repository
+	var quotaChecker quota.QuotaChecker
 
 	if cfg.Auth != nil && cfg.Auth.Enabled {
 		tenantInfo := ""
@@ -104,6 +106,10 @@ func main() {
 			log.Fatal("Auth requires store configuration (Firestore)")
 		}
 		userRepo = user.NewFirestoreRepository(firestoreClient.Client())
+
+		// Initialize quota checker for subscription limits
+		quotaChecker = quota.NewChecker(subRepo)
+		log.Println("Quota checking enabled")
 	}
 
 	// Create application with options
@@ -124,6 +130,7 @@ func main() {
 			EventRepo:        eventRepo,
 			TokenVerifier:    tokenVerifier,
 			UserRepo:         userRepo,
+			QuotaChecker:     quotaChecker,
 		}
 		handler := api.NewRouterWithConfig(routerCfg)
 

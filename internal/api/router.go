@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ayanel/namazu/internal/auth"
+	"github.com/ayanel/namazu/internal/quota"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 	"github.com/ayanel/namazu/internal/user"
@@ -16,6 +17,7 @@ type RouterConfig struct {
 	EventRepo        store.EventRepository
 	UserRepo         user.Repository
 	TokenVerifier    auth.TokenVerifier // nil means no auth
+	QuotaChecker     quota.QuotaChecker // nil means no quota checking
 }
 
 // NewRouter creates a new router with all API routes configured
@@ -29,7 +31,14 @@ func NewRouter(h *Handler) http.Handler {
 // NewRouterWithConfig creates a new HTTP router with authentication support
 func NewRouterWithConfig(cfg RouterConfig) http.Handler {
 	mux := http.NewServeMux()
-	h := NewHandler(cfg.SubscriptionRepo, cfg.EventRepo)
+
+	// Create handler with or without quota checking
+	var h *Handler
+	if cfg.QuotaChecker != nil {
+		h = NewHandlerWithQuota(cfg.SubscriptionRepo, cfg.EventRepo, cfg.UserRepo, cfg.QuotaChecker)
+	} else {
+		h = NewHandler(cfg.SubscriptionRepo, cfg.EventRepo)
+	}
 
 	// Public routes (no auth required)
 	registerPublicRoutes(mux, h)

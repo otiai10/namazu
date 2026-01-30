@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/ayanel/namazu/internal/auth"
+	"github.com/ayanel/namazu/internal/quota"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
+	"github.com/ayanel/namazu/internal/user"
 )
 
 // SubscriptionRequest represents the request body for creating/updating a subscription
@@ -49,13 +51,27 @@ type ErrorResponse struct {
 type Handler struct {
 	subscriptionRepo subscription.Repository
 	eventRepo        store.EventRepository
+	userRepo         user.Repository
+	quotaChecker     quota.QuotaChecker
 }
 
-// NewHandler creates a new Handler instance
+// NewHandler creates a new Handler instance (backward compatible, no quota checking)
 func NewHandler(subRepo subscription.Repository, eventRepo store.EventRepository) *Handler {
 	return &Handler{
 		subscriptionRepo: subRepo,
 		eventRepo:        eventRepo,
+		userRepo:         nil,
+		quotaChecker:     nil,
+	}
+}
+
+// NewHandlerWithQuota creates a new Handler with quota checking support
+func NewHandlerWithQuota(subRepo subscription.Repository, eventRepo store.EventRepository, userRepo user.Repository, quotaChecker quota.QuotaChecker) *Handler {
+	return &Handler{
+		subscriptionRepo: subRepo,
+		eventRepo:        eventRepo,
+		userRepo:         userRepo,
+		quotaChecker:     quotaChecker,
 	}
 }
 
@@ -88,9 +104,23 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 		Filter:   copyFilterConfig(req.Filter),
 	}
 
-	// Set UserID from claims if authenticated
+	// Set UserID from claims if authenticated and check quota
 	if claims, ok := auth.GetClaims(r.Context()); ok {
 		sub.UserID = claims.UID
+
+		// Check quota if quota checker is configured
+		if h.quotaChecker != nil {
+			plan := h.getUserPlan(r.Context(), claims.UID)
+			canCreate, err := h.quotaChecker.CanCreateSubscription(r.Context(), claims.UID, plan)
+			if err != nil {
+				writeError(w, "failed to check quota", http.StatusInternalServerError)
+				return
+			}
+			if !canCreate {
+				writeError(w, "Subscription limit reached for your plan", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	id, err := h.subscriptionRepo.Create(r.Context(), sub)
@@ -405,4 +435,23 @@ func copyFilterConfig(f *subscription.FilterConfig) *subscription.FilterConfig {
 		MinScale:    f.MinScale,
 		Prefectures: prefectures,
 	}
+}
+
+// getUserPlan retrieves the user's plan from the user repository
+// Returns "free" as default if user is not found or no user repo is configured
+func (h *Handler) getUserPlan(ctx context.Context, uid string) string {
+	if h.userRepo == nil {
+		return user.PlanFree
+	}
+
+	u, err := h.userRepo.GetByUID(ctx, uid)
+	if err != nil || u == nil {
+		return user.PlanFree
+	}
+
+	if u.Plan == "" {
+		return user.PlanFree
+	}
+
+	return u.Plan
 }

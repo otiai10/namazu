@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 
 	"github.com/ayanel/namazu/internal/config"
 	"github.com/ayanel/namazu/internal/delivery/webhook"
@@ -25,15 +26,21 @@ type Sender interface {
 	SendAll(ctx context.Context, targets []webhook.Target, payload []byte) []webhook.DeliveryResult
 }
 
+// SingleSender interface abstracts sending to a single target
+type SingleSender interface {
+	Send(ctx context.Context, url, secret string, payload []byte) webhook.DeliveryResult
+}
+
 // App is the main application orchestrator.
 // It coordinates the P2P地震情報 client and webhook sender,
 // providing a unified interface for the earthquake notification system.
 type App struct {
-	config     *config.Config
-	client     Client
-	sender     Sender
-	repository subscription.Repository
-	eventRepo  store.EventRepository // optional, can be nil
+	config       *config.Config
+	client       Client
+	sender       Sender
+	singleSender SingleSender
+	repository   subscription.Repository
+	eventRepo    store.EventRepository // optional, can be nil
 }
 
 // Option is a functional option for configuring the App.
@@ -75,11 +82,13 @@ func WithEventRepository(repo store.EventRepository) Option {
 //	eventRepo := store.NewFirestoreEventRepository(firestoreClient)
 //	app := NewApp(cfg, repo, WithEventRepository(eventRepo))
 func NewApp(cfg *config.Config, repo subscription.Repository, opts ...Option) *App {
+	baseSender := webhook.NewSender()
 	app := &App{
-		config:     cfg,
-		client:     p2pquake.NewClient(cfg.Source.Endpoint),
-		sender:     webhook.NewSender(),
-		repository: repo,
+		config:       cfg,
+		client:       p2pquake.NewClient(cfg.Source.Endpoint),
+		sender:       baseSender,
+		singleSender: baseSender,
+		repository:   repo,
 	}
 
 	for _, opt := range opts {
@@ -195,33 +204,134 @@ func (a *App) handleEvent(ctx context.Context, event source.Event) {
 		}
 	}
 
-	// Convert subscriptions to webhook targets (for now, only webhook supported)
-	targets := make([]webhook.Target, 0, len(subscriptions))
-	for _, sub := range subscriptions {
-		if sub.Delivery.Type == "webhook" {
-			// Check filter - skip if event doesn't match
-			if sub.Filter != nil && !sub.Filter.Matches(event) {
-				log.Printf("Subscription [%s]: filtered out (MinScale=%d, Prefectures=%v)",
-					sub.Name, sub.Filter.MinScale, sub.Filter.Prefectures)
-				continue
-			}
-			targets = append(targets, webhook.Target{
+	// Filter and collect webhook subscriptions
+	webhookSubs := filterWebhookSubscriptions(subscriptions, event)
+
+	// Deliver to all filtered subscriptions concurrently
+	a.deliverToSubscriptions(ctx, webhookSubs, payload)
+}
+
+// deliveryTarget holds subscription info for delivery
+type deliveryTarget struct {
+	sub    subscription.Subscription
+	target webhook.Target
+}
+
+// filterWebhookSubscriptions filters subscriptions to only include webhook
+// subscriptions that match the event filter.
+func filterWebhookSubscriptions(subs []subscription.Subscription, event source.Event) []deliveryTarget {
+	targets := make([]deliveryTarget, 0, len(subs))
+	for _, sub := range subs {
+		if sub.Delivery.Type != "webhook" {
+			continue
+		}
+		// Check filter - skip if event doesn't match
+		if sub.Filter != nil && !sub.Filter.Matches(event) {
+			log.Printf("Subscription [%s]: filtered out (MinScale=%d, Prefectures=%v)",
+				sub.Name, sub.Filter.MinScale, sub.Filter.Prefectures)
+			continue
+		}
+		targets = append(targets, deliveryTarget{
+			sub: sub,
+			target: webhook.Target{
 				URL:    sub.Delivery.URL,
 				Secret: sub.Delivery.Secret,
 				Name:   sub.Name,
-			})
+			},
+		})
+	}
+	return targets
+}
+
+// deliverToSubscriptions sends the payload to all targets concurrently,
+// using per-subscription retry configuration if available.
+func (a *App) deliverToSubscriptions(ctx context.Context, targets []deliveryTarget, payload []byte) {
+	// Check if any subscription has retry config
+	hasRetryConfig := false
+	for _, dt := range targets {
+		if dt.sub.Delivery.Retry != nil && dt.sub.Delivery.Retry.Enabled {
+			hasRetryConfig = true
+			break
 		}
 	}
 
-	// Send to all targets
-	results := a.sender.SendAll(ctx, targets, payload)
+	// If no retry config, use standard SendAll for backward compatibility
+	if !hasRetryConfig {
+		webhookTargets := make([]webhook.Target, len(targets))
+		for i, dt := range targets {
+			webhookTargets[i] = dt.target
+		}
+		results := a.sender.SendAll(ctx, webhookTargets, payload)
+		for i, result := range results {
+			logDeliveryResult(targets[i].target.Name, result)
+		}
+		return
+	}
+
+	// Use per-subscription delivery with retry
+	var wg sync.WaitGroup
+	results := make([]webhook.DeliveryResult, len(targets))
+
+	for i, dt := range targets {
+		wg.Add(1)
+		go func(index int, target deliveryTarget) {
+			defer wg.Done()
+			results[index] = a.deliverWithRetry(ctx, target, payload)
+		}(i, dt)
+	}
+
+	wg.Wait()
 
 	// Log results
 	for i, result := range results {
-		if result.Success {
-			log.Printf("Subscription [%s]: delivered in %v", targets[i].Name, result.ResponseTime)
+		logDeliveryResult(targets[i].target.Name, result)
+	}
+}
+
+// deliverWithRetry sends the payload to a single target with retry logic
+// based on the subscription's retry configuration.
+func (a *App) deliverWithRetry(ctx context.Context, dt deliveryTarget, payload []byte) webhook.DeliveryResult {
+	// If no retry config or retry disabled, use direct send
+	if dt.sub.Delivery.Retry == nil || !dt.sub.Delivery.Retry.Enabled {
+		return a.singleSender.Send(ctx, dt.target.URL, dt.target.Secret, payload)
+	}
+
+	// Convert subscription RetryConfig to webhook RetryConfig
+	retryConfig := webhook.RetryConfig{
+		Enabled:    dt.sub.Delivery.Retry.Enabled,
+		MaxRetries: dt.sub.Delivery.Retry.MaxRetries,
+		InitialMs:  dt.sub.Delivery.Retry.InitialMs,
+		MaxMs:      dt.sub.Delivery.Retry.MaxMs,
+	}
+
+	// Create retrying sender with per-subscription config
+	// Note: We create a new RetryingSender per delivery to use the subscription's config.
+	// This is lightweight as it just wraps the existing sender.
+	baseSender, ok := a.singleSender.(*webhook.Sender)
+	if !ok {
+		// Fallback: if not a Sender (e.g., mock), use direct send
+		return a.singleSender.Send(ctx, dt.target.URL, dt.target.Secret, payload)
+	}
+
+	retryingSender := webhook.NewRetryingSender(baseSender, retryConfig)
+	return retryingSender.Send(ctx, dt.target, payload)
+}
+
+// logDeliveryResult logs the result of a delivery attempt.
+func logDeliveryResult(name string, result webhook.DeliveryResult) {
+	if result.Success {
+		if result.RetryCount > 0 {
+			log.Printf("Subscription [%s]: delivered in %v (after %d retries)",
+				name, result.ResponseTime, result.RetryCount)
 		} else {
-			log.Printf("Subscription [%s]: failed - %s", targets[i].Name, result.ErrorMessage)
+			log.Printf("Subscription [%s]: delivered in %v", name, result.ResponseTime)
+		}
+	} else {
+		if result.RetryCount > 0 {
+			log.Printf("Subscription [%s]: failed after %d retries - %s",
+				name, result.RetryCount, result.ErrorMessage)
+		} else {
+			log.Printf("Subscription [%s]: failed - %s", name, result.ErrorMessage)
 		}
 	}
 }
