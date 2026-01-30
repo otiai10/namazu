@@ -737,54 +737,104 @@ func TestStoreConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestLoad_ExampleConfigFile(t *testing.T) {
-	// Test loading the actual example config file from the project root
-	exampleConfigPath := "../../config.example.yaml"
+func TestLoadFromEnv(t *testing.T) {
+	// Test loading configuration entirely from environment variables
+	// This is the primary way to configure the application
 
-	cfg, err := Load(exampleConfigPath)
+	// Set required environment variables
+	os.Setenv("NAMAZU_SOURCE_TYPE", "p2pquake")
+	os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://api-realtime-sandbox.p2pquake.net/v2/ws")
+	os.Setenv("NAMAZU_STORE_PROJECT_ID", "test-project")
+	os.Setenv("NAMAZU_API_ADDR", ":8080")
+	defer os.Unsetenv("NAMAZU_SOURCE_TYPE")
+	defer os.Unsetenv("NAMAZU_SOURCE_ENDPOINT")
+	defer os.Unsetenv("NAMAZU_STORE_PROJECT_ID")
+	defer os.Unsetenv("NAMAZU_API_ADDR")
+
+	cfg, err := LoadFromEnv()
 	if err != nil {
-		t.Fatalf("Load() error = %v, want nil for example config", err)
+		t.Fatalf("LoadFromEnv() error = %v, want nil", err)
 	}
 
-	// Verify the example config structure
+	// Verify the config structure
 	if cfg.Source.Type != "p2pquake" {
-		t.Errorf("Example config Source.Type = %q, want %q", cfg.Source.Type, "p2pquake")
+		t.Errorf("Source.Type = %q, want %q", cfg.Source.Type, "p2pquake")
 	}
 
 	if cfg.Source.Endpoint != "wss://api-realtime-sandbox.p2pquake.net/v2/ws" {
-		t.Errorf("Example config Source.Endpoint = %q, want %q",
+		t.Errorf("Source.Endpoint = %q, want %q",
 			cfg.Source.Endpoint,
 			"wss://api-realtime-sandbox.p2pquake.net/v2/ws")
 	}
 
-	if len(cfg.Subscriptions) != 1 {
-		t.Errorf("Example config has %d subscriptions, want 1", len(cfg.Subscriptions))
+	// subscriptions should be empty
+	if len(cfg.Subscriptions) != 0 {
+		t.Errorf("Subscriptions has %d items, want 0", len(cfg.Subscriptions))
 	}
 
-	if len(cfg.Subscriptions) > 0 {
-		if cfg.Subscriptions[0].Name != "my-webhook" {
-			t.Errorf("Example config subscription Name = %q, want %q",
-				cfg.Subscriptions[0].Name,
-				"my-webhook")
-		}
+	// Store should be configured from env var
+	if cfg.Store == nil {
+		t.Fatal("Store should not be nil")
+	}
 
-		if cfg.Subscriptions[0].Delivery.Type != "webhook" {
-			t.Errorf("Example config subscription Delivery.Type = %q, want %q",
-				cfg.Subscriptions[0].Delivery.Type,
-				"webhook")
-		}
+	if cfg.Store.ProjectID != "test-project" {
+		t.Errorf("Store.ProjectID = %q, want %q",
+			cfg.Store.ProjectID,
+			"test-project")
+	}
 
-		if cfg.Subscriptions[0].Delivery.URL != "https://example.com/earthquake" {
-			t.Errorf("Example config subscription Delivery.URL = %q, want %q",
-				cfg.Subscriptions[0].Delivery.URL,
-				"https://example.com/earthquake")
-		}
+	// API should be configured from env var
+	if cfg.API == nil {
+		t.Fatal("API should not be nil")
+	}
 
-		if cfg.Subscriptions[0].Delivery.Secret != "your-secret-key-here" {
-			t.Errorf("Example config subscription Delivery.Secret = %q, want %q",
-				cfg.Subscriptions[0].Delivery.Secret,
-				"your-secret-key-here")
-		}
+	if cfg.API.Addr != ":8080" {
+		t.Errorf("API.Addr = %q, want %q",
+			cfg.API.Addr,
+			":8080")
+	}
+}
+
+func TestLoad_EmptyPathUsesEnv(t *testing.T) {
+	// Test that Load("") delegates to LoadFromEnv
+
+	os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://test.example.com/ws")
+	os.Setenv("NAMAZU_API_ADDR", ":8080") // Required: either subscriptions or API
+	defer os.Unsetenv("NAMAZU_SOURCE_ENDPOINT")
+	defer os.Unsetenv("NAMAZU_API_ADDR")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error = %v, want nil", err)
+	}
+
+	if cfg.Source.Type != "p2pquake" {
+		t.Errorf("Source.Type = %q, want %q (default)", cfg.Source.Type, "p2pquake")
+	}
+
+	if cfg.Source.Endpoint != "wss://test.example.com/ws" {
+		t.Errorf("Source.Endpoint = %q, want %q",
+			cfg.Source.Endpoint,
+			"wss://test.example.com/ws")
+	}
+}
+
+func TestLoadFromEnv_DefaultSourceType(t *testing.T) {
+	// Test that source.type defaults to "p2pquake" when not specified
+
+	// Only set endpoint, not type
+	os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://test.example.com/ws")
+	os.Setenv("NAMAZU_API_ADDR", ":8080") // Required: either subscriptions or API
+	defer os.Unsetenv("NAMAZU_SOURCE_ENDPOINT")
+	defer os.Unsetenv("NAMAZU_API_ADDR")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv() error = %v, want nil", err)
+	}
+
+	if cfg.Source.Type != "p2pquake" {
+		t.Errorf("Source.Type = %q, want %q (default)", cfg.Source.Type, "p2pquake")
 	}
 }
 
@@ -941,47 +991,274 @@ func TestAPIConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestLoad_Phase2ConfigFile(t *testing.T) {
-	// Test loading the Phase 2 config file from the project root
-	// Phase 2 config uses environment variables for sensitive data
-	phase2ConfigPath := "../../config.phase2.yaml"
+func TestLoad_WithAuthConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
 
-	// Set required environment variables (as recommended in production)
-	os.Setenv("NAMAZU_STORE_PROJECT_ID", "test-project")
-	os.Setenv("NAMAZU_STORE_DATABASE", "test-database")
-	defer os.Unsetenv("NAMAZU_STORE_PROJECT_ID")
-	defer os.Unsetenv("NAMAZU_STORE_DATABASE")
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
 
-	cfg, err := Load(phase2ConfigPath)
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+
+auth:
+  enabled: true
+  project_id: test-firebase-project
+  credentials: /path/to/credentials.json
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
 	if err != nil {
-		t.Fatalf("Load() error = %v, want nil for phase2 config", err)
+		t.Fatalf("Load() error = %v, want nil", err)
 	}
 
-	// Verify Phase 2 config structure
-	if cfg.Source.Type != "p2pquake" {
-		t.Errorf("Phase2 config Source.Type = %q, want %q", cfg.Source.Type, "p2pquake")
+	if cfg.Auth == nil {
+		t.Fatal("Auth config should not be nil")
 	}
 
-	// Empty subscriptions in Phase 2 mode
-	if len(cfg.Subscriptions) != 0 {
-		t.Errorf("Phase2 config has %d subscriptions, want 0", len(cfg.Subscriptions))
+	if !cfg.Auth.Enabled {
+		t.Error("Auth.Enabled = false, want true")
 	}
 
-	// Store should be configured
-	if cfg.Store == nil {
-		t.Fatal("Phase2 config Store should not be nil")
+	if cfg.Auth.ProjectID != "test-firebase-project" {
+		t.Errorf("Auth.ProjectID = %q, want %q", cfg.Auth.ProjectID, "test-firebase-project")
 	}
 
-	if cfg.Store.Type != "firestore" {
-		t.Errorf("Phase2 config Store.Type = %q, want %q", cfg.Store.Type, "firestore")
+	if cfg.Auth.Credentials != "/path/to/credentials.json" {
+		t.Errorf("Auth.Credentials = %q, want %q", cfg.Auth.Credentials, "/path/to/credentials.json")
+	}
+}
+
+func TestLoad_WithAuthDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+
+auth:
+  enabled: false
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
-	// API should be configured
-	if cfg.API == nil {
-		t.Fatal("Phase2 config API should not be nil")
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
 	}
 
-	if cfg.API.Addr != ":8080" {
-		t.Errorf("Phase2 config API.Addr = %q, want %q", cfg.API.Addr, ":8080")
+	if cfg.Auth == nil {
+		t.Fatal("Auth config should not be nil")
+	}
+
+	if cfg.Auth.Enabled {
+		t.Error("Auth.Enabled = true, want false")
+	}
+}
+
+func TestLoad_AuthEnvironmentOverrides(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `source:
+  type: p2pquake
+  endpoint: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+
+subscriptions:
+  - name: test-webhook
+    delivery:
+      type: webhook
+      url: https://example.com/webhook
+      secret: secret1
+`
+
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	// Set environment variables
+	os.Setenv("NAMAZU_AUTH_ENABLED", "true")
+	os.Setenv("NAMAZU_AUTH_PROJECT_ID", "env-firebase-project")
+	os.Setenv("NAMAZU_AUTH_CREDENTIALS", "/env/path/credentials.json")
+	os.Setenv("NAMAZU_AUTH_TENANT_ID", "test-tenant-123")
+	defer os.Unsetenv("NAMAZU_AUTH_ENABLED")
+	defer os.Unsetenv("NAMAZU_AUTH_PROJECT_ID")
+	defer os.Unsetenv("NAMAZU_AUTH_CREDENTIALS")
+	defer os.Unsetenv("NAMAZU_AUTH_TENANT_ID")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if cfg.Auth == nil {
+		t.Fatal("Auth config should be created by env var")
+	}
+
+	if !cfg.Auth.Enabled {
+		t.Error("Auth.Enabled = false, want true (from env var)")
+	}
+
+	if cfg.Auth.ProjectID != "env-firebase-project" {
+		t.Errorf("Auth.ProjectID = %q, want %q (from env var)", cfg.Auth.ProjectID, "env-firebase-project")
+	}
+
+	if cfg.Auth.Credentials != "/env/path/credentials.json" {
+		t.Errorf("Auth.Credentials = %q, want %q (from env var)", cfg.Auth.Credentials, "/env/path/credentials.json")
+	}
+
+	if cfg.Auth.TenantID != "test-tenant-123" {
+		t.Errorf("Auth.TenantID = %q, want %q (from env var)", cfg.Auth.TenantID, "test-tenant-123")
+	}
+}
+
+func TestValidate_AuthConfigValid(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Auth: &AuthConfig{
+			Enabled:   true,
+			ProjectID: "test-project",
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestValidate_AuthConfigDisabledNoProjectID(t *testing.T) {
+	// When auth is disabled, project_id is not required
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Auth: &AuthConfig{
+			Enabled: false,
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil for disabled auth without project_id", err)
+	}
+}
+
+func TestValidate_AuthConfigMissingProjectID(t *testing.T) {
+	cfg := &Config{
+		Source: SourceConfig{
+			Type:     "p2pquake",
+			Endpoint: "wss://example.com/ws",
+		},
+		Subscriptions: []SubscriptionConfig{
+			{
+				Name: "test-webhook",
+				Delivery: DeliveryConfig{
+					Type:   "webhook",
+					URL:    "https://example.com/webhook",
+					Secret: "secret123",
+				},
+			},
+		},
+		Auth: &AuthConfig{
+			Enabled:   true,
+			ProjectID: "",
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error for auth missing project_id when enabled")
+	}
+}
+
+func TestAuthConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  AuthConfig
+		wantErr bool
+	}{
+		{
+			name: "valid auth config with credentials",
+			config: AuthConfig{
+				Enabled:     true,
+				ProjectID:   "my-project",
+				Credentials: "/path/to/creds.json",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid auth config without credentials",
+			config: AuthConfig{
+				Enabled:   true,
+				ProjectID: "my-project",
+			},
+			wantErr: false,
+		},
+		{
+			name: "disabled auth without project_id",
+			config: AuthConfig{
+				Enabled: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "enabled auth missing project_id",
+			config: AuthConfig{
+				Enabled:   true,
+				ProjectID: "",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

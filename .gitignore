@@ -15,11 +15,12 @@ coverage.out
 # OS
 .DS_Store
 
-# Config (実際の設定ファイル)
-config.yaml
-
 # Environment variables (local development)
+# .env.*.example はコミットする（テンプレート）
 .env
+.env.localdev
+.env.test
+.env.production
 
 # GCP credentials (never commit!)
 service-account.json

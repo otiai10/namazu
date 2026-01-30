@@ -13,6 +13,15 @@ type Config struct {
 	Subscriptions []SubscriptionConfig `yaml:"subscriptions"`
 	Store         *StoreConfig         `yaml:"store,omitempty"`
 	API           *APIConfig           `yaml:"api,omitempty"`
+	Auth          *AuthConfig          `yaml:"auth,omitempty"`
+}
+
+// AuthConfig represents the authentication configuration
+type AuthConfig struct {
+	Enabled     bool   `yaml:"enabled"`               // Whether auth is enabled
+	ProjectID   string `yaml:"project_id"`            // Firebase project ID
+	TenantID    string `yaml:"tenant_id,omitempty"`   // Optional: Identity Platform tenant ID
+	Credentials string `yaml:"credentials,omitempty"` // Path to service account JSON (local dev)
 }
 
 // APIConfig represents the REST API server configuration
@@ -54,14 +63,50 @@ type FilterConfig struct {
 	Prefectures []string `yaml:"prefectures,omitempty"`
 }
 
-// Load reads configuration from the specified YAML file
+// LoadFromEnv creates configuration entirely from environment variables.
+// This is the recommended way to configure the application.
+//
+// Required environment variables:
+//   - NAMAZU_SOURCE_TYPE: data source type (default: "p2pquake")
+//   - NAMAZU_SOURCE_ENDPOINT: WebSocket endpoint URL
+//
+// Optional environment variables:
+//   - NAMAZU_STORE_PROJECT_ID: enables Firestore with this project
+//   - NAMAZU_STORE_DATABASE: Firestore database name
+//   - NAMAZU_STORE_CREDENTIALS: path to service account JSON (local dev only)
+//   - NAMAZU_API_ADDR: enables REST API on this address (e.g., ":8080")
+//   - NAMAZU_AUTH_ENABLED: "true" to enable authentication
+//   - NAMAZU_AUTH_PROJECT_ID: Firebase project ID for auth
+//   - NAMAZU_AUTH_CREDENTIALS: path to service account JSON (local dev only)
+//   - NAMAZU_AUTH_TENANT_ID: Identity Platform tenant ID (optional)
+func LoadFromEnv() (*Config, error) {
+	cfg := &Config{}
+	applyEnvOverrides(cfg)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// Load reads configuration from the specified YAML file.
+// If path is empty, loads configuration entirely from environment variables.
+//
 // Environment variables override file values:
+//   - NAMAZU_SOURCE_TYPE overrides source.type
 //   - NAMAZU_SOURCE_ENDPOINT overrides source.endpoint
 //   - NAMAZU_STORE_PROJECT_ID overrides store.project_id
 //   - NAMAZU_STORE_DATABASE overrides store.database
 //   - NAMAZU_STORE_CREDENTIALS overrides store.credentials (for local dev only)
 //   - NAMAZU_API_ADDR overrides api.addr
+//   - NAMAZU_AUTH_* overrides auth settings
 func Load(path string) (*Config, error) {
+	// If no path provided, load entirely from environment
+	if path == "" {
+		return LoadFromEnv()
+	}
+
 	// Read file
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -75,6 +120,26 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Apply environment variable overrides
+	applyEnvOverrides(&cfg)
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+// applyEnvOverrides applies environment variable overrides to the config
+func applyEnvOverrides(cfg *Config) {
+	// Apply source overrides
+	if sourceType := os.Getenv("NAMAZU_SOURCE_TYPE"); sourceType != "" {
+		cfg.Source.Type = sourceType
+	}
+	if cfg.Source.Type == "" {
+		cfg.Source.Type = "p2pquake" // default
+	}
+
 	if endpoint := os.Getenv("NAMAZU_SOURCE_ENDPOINT"); endpoint != "" {
 		cfg.Source.Endpoint = endpoint
 	}
@@ -107,12 +172,31 @@ func Load(path string) (*Config, error) {
 		cfg.API.Addr = apiAddr
 	}
 
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+	// Apply auth overrides
+	if authEnabled := os.Getenv("NAMAZU_AUTH_ENABLED"); authEnabled == "true" {
+		if cfg.Auth == nil {
+			cfg.Auth = &AuthConfig{}
+		}
+		cfg.Auth.Enabled = true
 	}
-
-	return &cfg, nil
+	if authProjectID := os.Getenv("NAMAZU_AUTH_PROJECT_ID"); authProjectID != "" {
+		if cfg.Auth == nil {
+			cfg.Auth = &AuthConfig{}
+		}
+		cfg.Auth.ProjectID = authProjectID
+	}
+	if authCredentials := os.Getenv("NAMAZU_AUTH_CREDENTIALS"); authCredentials != "" {
+		if cfg.Auth == nil {
+			cfg.Auth = &AuthConfig{}
+		}
+		cfg.Auth.Credentials = authCredentials
+	}
+	if authTenantID := os.Getenv("NAMAZU_AUTH_TENANT_ID"); authTenantID != "" {
+		if cfg.Auth == nil {
+			cfg.Auth = &AuthConfig{}
+		}
+		cfg.Auth.TenantID = authTenantID
+	}
 }
 
 // Validate checks if the configuration is valid
@@ -172,6 +256,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate auth configuration if present
+	if c.Auth != nil {
+		if err := c.Auth.Validate(); err != nil {
+			return fmt.Errorf("auth: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -198,5 +289,16 @@ func (s *StoreConfig) Validate() error {
 		return fmt.Errorf("project_id is required for firestore")
 	}
 
+	return nil
+}
+
+// Validate checks if the auth configuration is valid
+func (a *AuthConfig) Validate() error {
+	if !a.Enabled {
+		return nil
+	}
+	if a.ProjectID == "" {
+		return fmt.Errorf("project_id is required when auth is enabled")
+	}
 	return nil
 }
