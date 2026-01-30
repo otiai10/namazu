@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ayanel/namazu/internal/auth"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 )
@@ -59,6 +60,17 @@ func (m *mockSubscriptionRepo) Update(ctx context.Context, id string, sub subscr
 func (m *mockSubscriptionRepo) Delete(ctx context.Context, id string) error {
 	delete(m.subscriptions, id)
 	return nil
+}
+
+func (m *mockSubscriptionRepo) ListByUserID(ctx context.Context, userID string) ([]subscription.Subscription, error) {
+	result := make([]subscription.Subscription, 0)
+	for _, sub := range m.subscriptions {
+		// Return subscriptions owned by user or legacy subscriptions (no owner)
+		if sub.UserID == userID || sub.UserID == "" {
+			result = append(result, sub)
+		}
+	}
+	return result, nil
 }
 
 // mockEventRepo implements store.EventRepository for testing
@@ -530,5 +542,307 @@ func TestCreateSubscriptionWithFilter(t *testing.T) {
 
 	if len(response.Filter.Prefectures) != 2 {
 		t.Errorf("expected 2 prefectures, got %d", len(response.Filter.Prefectures))
+	}
+}
+
+// Tests for ownership checks
+
+func TestCreateSubscription_SetsUserIDFromClaims(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   "owner-user-id",
+		Email: "owner@example.com",
+	}
+
+	body := `{
+		"name": "My Subscription",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, rec.Code)
+	}
+
+	// Verify UserID was set in the repository
+	for _, sub := range subRepo.subscriptions {
+		if sub.UserID != claims.UID {
+			t.Errorf("expected UserID %s, got %s", claims.UID, sub.UserID)
+		}
+	}
+}
+
+func TestGetSubscription_ReturnsOwnSubscription(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	ownerUID := "owner-uid"
+	subRepo.subscriptions["sub-owned"] = subscription.Subscription{
+		ID:     "sub-owned",
+		UserID: ownerUID,
+		Name:   "My Subscription",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   ownerUID,
+		Email: "owner@example.com",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/sub-owned", nil)
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.GetSubscription(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestGetSubscription_Returns403ForOtherUsersSubscription(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	subRepo.subscriptions["sub-other"] = subscription.Subscription{
+		ID:     "sub-other",
+		UserID: "other-user-uid",
+		Name:   "Someone Else's Subscription",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   "attacker-uid",
+		Email: "attacker@example.com",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/sub-other", nil)
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.GetSubscription(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestGetSubscription_AllowsAccessToLegacySubscriptionWithoutUserID(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	// Legacy subscription without UserID
+	subRepo.subscriptions["sub-legacy"] = subscription.Subscription{
+		ID:     "sub-legacy",
+		UserID: "", // No owner set (legacy data)
+		Name:   "Legacy Subscription",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   "any-user-uid",
+		Email: "any@example.com",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/sub-legacy", nil)
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.GetSubscription(rec, req)
+
+	// Legacy subscriptions should be accessible (backward compatibility)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestUpdateSubscription_Returns403ForOtherUsersSubscription(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	subRepo.subscriptions["sub-other"] = subscription.Subscription{
+		ID:     "sub-other",
+		UserID: "other-user-uid",
+		Name:   "Someone Else's Subscription",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   "attacker-uid",
+		Email: "attacker@example.com",
+	}
+
+	body := `{
+		"name": "Hacked Name",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://evil.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPut, "/api/subscriptions/sub-other", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.UpdateSubscription(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestDeleteSubscription_Returns403ForOtherUsersSubscription(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	subRepo.subscriptions["sub-other"] = subscription.Subscription{
+		ID:     "sub-other",
+		UserID: "other-user-uid",
+		Name:   "Someone Else's Subscription",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   "attacker-uid",
+		Email: "attacker@example.com",
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/subscriptions/sub-other", nil)
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.DeleteSubscription(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestListSubscriptions_FiltersToUserOwnSubscriptions(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	userUID := "my-user-uid"
+
+	// User's own subscriptions
+	subRepo.subscriptions["sub-mine-1"] = subscription.Subscription{
+		ID:     "sub-mine-1",
+		UserID: userUID,
+		Name:   "My Sub 1",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com/1",
+		},
+	}
+	subRepo.subscriptions["sub-mine-2"] = subscription.Subscription{
+		ID:     "sub-mine-2",
+		UserID: userUID,
+		Name:   "My Sub 2",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com/2",
+		},
+	}
+
+	// Other user's subscription
+	subRepo.subscriptions["sub-other"] = subscription.Subscription{
+		ID:     "sub-other",
+		UserID: "other-user-uid",
+		Name:   "Other's Sub",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com/other",
+		},
+	}
+
+	// Legacy subscription (no owner)
+	subRepo.subscriptions["sub-legacy"] = subscription.Subscription{
+		ID:     "sub-legacy",
+		UserID: "",
+		Name:   "Legacy Sub",
+		Delivery: subscription.DeliveryConfig{
+			Type: "webhook",
+			URL:  "https://example.com/legacy",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	claims := &auth.Claims{
+		UID:   userUID,
+		Email: "my@example.com",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions", nil)
+	ctx := auth.WithClaims(req.Context(), claims)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.ListSubscriptions(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var response []SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// Should only return user's own subscriptions + legacy subscriptions
+	// Expecting 3: 2 owned + 1 legacy
+	if len(response) != 3 {
+		t.Errorf("expected 3 subscriptions, got %d", len(response))
+	}
+
+	// Verify none of the returned subscriptions belong to other users
+	for _, sub := range response {
+		if sub.ID == "sub-other" {
+			t.Error("should not return other user's subscription")
+		}
 	}
 }

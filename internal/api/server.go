@@ -41,6 +41,23 @@ func NewServer(addr string, subRepo subscription.Repository, eventRepo store.Eve
 	return s
 }
 
+// NewServerWithHandler creates a new Server with a custom handler
+func NewServerWithHandler(addr string, handler http.Handler, subRepo subscription.Repository, eventRepo store.EventRepository) *Server {
+	return &Server{
+		addr:             addr,
+		subscriptionRepo: subRepo,
+		eventRepo:        eventRepo,
+		httpServer: &http.Server{
+			Addr:              addr,
+			Handler:           handler,
+			ReadTimeout:       15 * time.Second,
+			ReadHeaderTimeout: 5 * time.Second,
+			WriteTimeout:      15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		},
+	}
+}
+
 // Start begins listening for HTTP requests
 func (s *Server) Start() error {
 	if s.httpServer == nil {

@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ayanel/namazu/internal/auth"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
 )
@@ -86,6 +88,11 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 		Filter:   copyFilterConfig(req.Filter),
 	}
 
+	// Set UserID from claims if authenticated
+	if claims, ok := auth.GetClaims(r.Context()); ok {
+		sub.UserID = claims.UID
+	}
+
 	id, err := h.subscriptionRepo.Create(r.Context(), sub)
 	if err != nil {
 		writeError(w, "failed to create subscription", http.StatusInternalServerError)
@@ -103,13 +110,23 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListSubscriptions handles GET /api/subscriptions
+// When authenticated, returns only user's own subscriptions + legacy (ownerless) subscriptions
 func (h *Handler) ListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	subs, err := h.subscriptionRepo.List(r.Context())
+	var subs []subscription.Subscription
+	var err error
+
+	// If authenticated, filter by user ID
+	if claims, ok := auth.GetClaims(r.Context()); ok {
+		subs, err = h.subscriptionRepo.ListByUserID(r.Context(), claims.UID)
+	} else {
+		subs, err = h.subscriptionRepo.List(r.Context())
+	}
+
 	if err != nil {
 		writeError(w, "failed to list subscriptions", http.StatusInternalServerError)
 		return
@@ -136,14 +153,17 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sub, err := h.subscriptionRepo.Get(r.Context(), id)
+	sub, forbidden, err := h.checkOwnership(r.Context(), id)
 	if err != nil {
 		writeError(w, "failed to get subscription", http.StatusInternalServerError)
 		return
 	}
-
 	if sub == nil {
 		writeError(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	if forbidden {
+		writeError(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -179,20 +199,24 @@ func (h *Handler) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if subscription exists
-	existing, err := h.subscriptionRepo.Get(r.Context(), id)
+	// Check if subscription exists and verify ownership
+	existing, forbidden, err := h.checkOwnership(r.Context(), id)
 	if err != nil {
 		writeError(w, "failed to get subscription", http.StatusInternalServerError)
 		return
 	}
-
 	if existing == nil {
 		writeError(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	if forbidden {
+		writeError(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
 	sub := subscription.Subscription{
 		ID:       id,
+		UserID:   existing.UserID, // Preserve the original owner
 		Name:     req.Name,
 		Delivery: copyDeliveryConfig(req.Delivery),
 		Filter:   copyFilterConfig(req.Filter),
@@ -219,15 +243,18 @@ func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if subscription exists
-	existing, err := h.subscriptionRepo.Get(r.Context(), id)
+	// Check if subscription exists and verify ownership
+	existing, forbidden, err := h.checkOwnership(r.Context(), id)
 	if err != nil {
 		writeError(w, "failed to get subscription", http.StatusInternalServerError)
 		return
 	}
-
 	if existing == nil {
 		writeError(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	if forbidden {
+		writeError(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -276,6 +303,45 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper functions
+
+// checkOwnership verifies that the current user owns the subscription.
+// Returns:
+//   - subscription: The subscription if found (nil if not found)
+//   - forbidden: true if user is not the owner
+//   - err: database error
+//
+// Rules:
+//   - If no auth claims in context: allow access (backward compatibility during transition)
+//   - If subscription has no owner (UserID == ""): allow access (legacy data)
+//   - If subscription owner matches current user: allow access
+//   - Otherwise: forbidden
+func (h *Handler) checkOwnership(ctx context.Context, subID string) (*subscription.Subscription, bool, error) {
+	sub, err := h.subscriptionRepo.Get(ctx, subID)
+	if err != nil {
+		return nil, false, err
+	}
+	if sub == nil {
+		return nil, false, nil // not found
+	}
+
+	claims, ok := auth.GetClaims(ctx)
+	if !ok {
+		// No auth context, allow access (backward compatibility)
+		return sub, false, nil
+	}
+
+	// Legacy subscription with no owner
+	if sub.UserID == "" {
+		return sub, false, nil
+	}
+
+	// Check ownership
+	if sub.UserID != claims.UID {
+		return sub, true, nil // forbidden
+	}
+
+	return sub, false, nil
+}
 
 func extractIDFromPath(path, prefix string) string {
 	if !strings.HasPrefix(path, prefix) {
