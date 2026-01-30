@@ -134,6 +134,13 @@ func main() {
 		}
 		handler := api.NewRouterWithConfig(routerCfg)
 
+		// Wrap with static file serving if available
+		if staticFS, ok := getStaticFS(); ok {
+			staticServer := api.NewStaticFileServer(staticFS, staticRoot())
+			handler = api.WithStaticFiles(handler, staticServer)
+			log.Println("Static file serving enabled")
+		}
+
 		apiServer = api.NewServerWithHandler(cfg.API.Addr, handler, subRepo, eventRepo)
 		go func() {
 			if err := apiServer.Start(); err != nil {
