@@ -83,4 +83,15 @@ type Repository interface {
 	// Returns:
 	//   - Error if user not found, provider not found, or Firestore operation fails
 	RemoveProvider(ctx context.Context, id string, providerID string) error
+
+	// GetByStripeCustomerID retrieves a user by Stripe customer ID
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation control
+	//   - customerID: Stripe customer ID to search for
+	//
+	// Returns:
+	//   - Pointer to the user (nil if not found)
+	//   - Error if Firestore operation fails (nil for not found)
+	GetByStripeCustomerID(ctx context.Context, customerID string) (*User, error)
 }

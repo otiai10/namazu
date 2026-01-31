@@ -16,6 +16,12 @@ type User struct {
 	CreatedAt   time.Time        `firestore:"createdAt" json:"createdAt"`
 	UpdatedAt   time.Time        `firestore:"updatedAt" json:"updatedAt"`
 	LastLoginAt time.Time        `firestore:"lastLoginAt" json:"lastLoginAt"`
+
+	// Stripe integration fields
+	StripeCustomerID   string    `firestore:"stripeCustomerId,omitempty" json:"stripeCustomerId,omitempty"`
+	SubscriptionID     string    `firestore:"subscriptionId,omitempty" json:"subscriptionId,omitempty"`
+	SubscriptionStatus string    `firestore:"subscriptionStatus,omitempty" json:"subscriptionStatus,omitempty"` // "active" | "canceled" | "past_due"
+	SubscriptionEndsAt time.Time `firestore:"subscriptionEndsAt,omitempty" json:"subscriptionEndsAt,omitempty"`
 }
 
 // LinkedProvider represents a linked authentication provider
@@ -33,6 +39,13 @@ const (
 	PlanPro  = "pro"
 )
 
+// SubscriptionStatus constants for Stripe subscription states
+const (
+	SubscriptionStatusActive   = "active"
+	SubscriptionStatusCanceled = "canceled"
+	SubscriptionStatusPastDue  = "past_due"
+)
+
 // ProviderID constants for authentication providers
 const (
 	ProviderGoogle   = "google.com"
@@ -43,15 +56,19 @@ const (
 // Copy creates a deep copy of the User to prevent mutation
 func (u User) Copy() User {
 	copied := User{
-		ID:          u.ID,
-		UID:         u.UID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		PictureURL:  u.PictureURL,
-		Plan:        u.Plan,
-		CreatedAt:   u.CreatedAt,
-		UpdatedAt:   u.UpdatedAt,
-		LastLoginAt: u.LastLoginAt,
+		ID:                 u.ID,
+		UID:                u.UID,
+		Email:              u.Email,
+		DisplayName:        u.DisplayName,
+		PictureURL:         u.PictureURL,
+		Plan:               u.Plan,
+		CreatedAt:          u.CreatedAt,
+		UpdatedAt:          u.UpdatedAt,
+		LastLoginAt:        u.LastLoginAt,
+		StripeCustomerID:   u.StripeCustomerID,
+		SubscriptionID:     u.SubscriptionID,
+		SubscriptionStatus: u.SubscriptionStatus,
+		SubscriptionEndsAt: u.SubscriptionEndsAt,
 	}
 
 	// Deep copy providers slice

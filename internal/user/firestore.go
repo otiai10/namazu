@@ -302,7 +302,7 @@ func userToMap(user User) map[string]any {
 		providers[i] = providerToMap(p)
 	}
 
-	return map[string]any{
+	data := map[string]any{
 		"uid":         user.UID,
 		"email":       user.Email,
 		"displayName": user.DisplayName,
@@ -313,6 +313,22 @@ func userToMap(user User) map[string]any {
 		"updatedAt":   user.UpdatedAt,
 		"lastLoginAt": user.LastLoginAt,
 	}
+
+	// Include Stripe fields if set
+	if user.StripeCustomerID != "" {
+		data["stripeCustomerId"] = user.StripeCustomerID
+	}
+	if user.SubscriptionID != "" {
+		data["subscriptionId"] = user.SubscriptionID
+	}
+	if user.SubscriptionStatus != "" {
+		data["subscriptionStatus"] = user.SubscriptionStatus
+	}
+	if !user.SubscriptionEndsAt.IsZero() {
+		data["subscriptionEndsAt"] = user.SubscriptionEndsAt
+	}
+
+	return data
 }
 
 // providerToMap converts a LinkedProvider to a map for Firestore storage
@@ -357,6 +373,20 @@ func documentToUser(doc *firestore.DocumentSnapshot) (User, error) {
 	}
 	if lastLoginAt, ok := data["lastLoginAt"].(time.Time); ok {
 		user.LastLoginAt = lastLoginAt
+	}
+
+	// Parse Stripe fields
+	if stripeCustomerID, ok := data["stripeCustomerId"].(string); ok {
+		user.StripeCustomerID = stripeCustomerID
+	}
+	if subscriptionID, ok := data["subscriptionId"].(string); ok {
+		user.SubscriptionID = subscriptionID
+	}
+	if subscriptionStatus, ok := data["subscriptionStatus"].(string); ok {
+		user.SubscriptionStatus = subscriptionStatus
+	}
+	if subscriptionEndsAt, ok := data["subscriptionEndsAt"].(time.Time); ok {
+		user.SubscriptionEndsAt = subscriptionEndsAt
 	}
 
 	// Parse providers
@@ -405,4 +435,35 @@ func findProviderIndex(providers []LinkedProvider, providerID string) int {
 		}
 	}
 	return -1
+}
+
+// GetByStripeCustomerID retrieves a user by Stripe customer ID
+//
+// Parameters:
+//   - ctx: Context for cancellation control
+//   - customerID: Stripe customer ID to search for
+//
+// Returns:
+//   - Pointer to the user (nil if not found)
+//   - Error if Firestore operation fails (nil for not found)
+func (r *FirestoreRepository) GetByStripeCustomerID(ctx context.Context, customerID string) (*User, error) {
+	docs, err := r.client.Collection(collectionName).
+		Where("stripeCustomerId", "==", customerID).
+		Limit(1).
+		Documents(ctx).
+		GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user by Stripe customer ID: %w", err)
+	}
+
+	if len(docs) == 0 {
+		return nil, nil
+	}
+
+	user, err := documentToUser(docs[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert document: %w", err)
+	}
+
+	return &user, nil
 }

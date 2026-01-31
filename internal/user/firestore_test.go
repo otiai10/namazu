@@ -140,6 +140,67 @@ func TestUserToMap(t *testing.T) {
 			t.Error("ID should not be included in the map (it's the document ID)")
 		}
 	})
+
+	t.Run("includes Stripe fields when set", func(t *testing.T) {
+		subscriptionEndsAt := now.Add(30 * 24 * time.Hour)
+		user := User{
+			ID:                 "doc-id",
+			UID:                "uid-stripe",
+			Email:              "stripe@example.com",
+			DisplayName:        "Stripe User",
+			Plan:               PlanPro,
+			StripeCustomerID:   "cus_test123",
+			SubscriptionID:     "sub_test456",
+			SubscriptionStatus: SubscriptionStatusActive,
+			SubscriptionEndsAt: subscriptionEndsAt,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+			LastLoginAt:        now,
+		}
+
+		data := userToMap(user)
+
+		if data["stripeCustomerId"] != "cus_test123" {
+			t.Errorf("Expected stripeCustomerId 'cus_test123', got %v", data["stripeCustomerId"])
+		}
+		if data["subscriptionId"] != "sub_test456" {
+			t.Errorf("Expected subscriptionId 'sub_test456', got %v", data["subscriptionId"])
+		}
+		if data["subscriptionStatus"] != SubscriptionStatusActive {
+			t.Errorf("Expected subscriptionStatus 'active', got %v", data["subscriptionStatus"])
+		}
+		if data["subscriptionEndsAt"] != subscriptionEndsAt {
+			t.Errorf("Expected subscriptionEndsAt %v, got %v", subscriptionEndsAt, data["subscriptionEndsAt"])
+		}
+	})
+
+	t.Run("omits Stripe fields when not set", func(t *testing.T) {
+		user := User{
+			ID:          "doc-id",
+			UID:         "uid-no-stripe",
+			Email:       "nostripe@example.com",
+			DisplayName: "No Stripe User",
+			Plan:        PlanFree,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			LastLoginAt: now,
+		}
+
+		data := userToMap(user)
+
+		if _, exists := data["stripeCustomerId"]; exists {
+			t.Error("stripeCustomerId should not be included when not set")
+		}
+		if _, exists := data["subscriptionId"]; exists {
+			t.Error("subscriptionId should not be included when not set")
+		}
+		if _, exists := data["subscriptionStatus"]; exists {
+			t.Error("subscriptionStatus should not be included when not set")
+		}
+		if _, exists := data["subscriptionEndsAt"]; exists {
+			t.Error("subscriptionEndsAt should not be included when not set")
+		}
+	})
 }
 
 func TestProviderToMap(t *testing.T) {
@@ -292,6 +353,41 @@ func TestUserCopy(t *testing.T) {
 
 		if copied.Providers != nil {
 			t.Error("Expected nil providers in copy when original has nil")
+		}
+	})
+
+	t.Run("copies Stripe fields", func(t *testing.T) {
+		subscriptionEndsAt := now.Add(30 * 24 * time.Hour)
+		original := User{
+			ID:                 "doc-id",
+			UID:                "uid-stripe",
+			Email:              "stripe@example.com",
+			Plan:               PlanPro,
+			StripeCustomerID:   "cus_test123",
+			SubscriptionID:     "sub_test456",
+			SubscriptionStatus: SubscriptionStatusActive,
+			SubscriptionEndsAt: subscriptionEndsAt,
+		}
+
+		copied := original.Copy()
+
+		if copied.StripeCustomerID != original.StripeCustomerID {
+			t.Errorf("Expected StripeCustomerID %s, got %s", original.StripeCustomerID, copied.StripeCustomerID)
+		}
+		if copied.SubscriptionID != original.SubscriptionID {
+			t.Errorf("Expected SubscriptionID %s, got %s", original.SubscriptionID, copied.SubscriptionID)
+		}
+		if copied.SubscriptionStatus != original.SubscriptionStatus {
+			t.Errorf("Expected SubscriptionStatus %s, got %s", original.SubscriptionStatus, copied.SubscriptionStatus)
+		}
+		if !copied.SubscriptionEndsAt.Equal(original.SubscriptionEndsAt) {
+			t.Errorf("Expected SubscriptionEndsAt %v, got %v", original.SubscriptionEndsAt, copied.SubscriptionEndsAt)
+		}
+
+		// Verify independence
+		copied.StripeCustomerID = "cus_modified"
+		if original.StripeCustomerID == copied.StripeCustomerID {
+			t.Error("Modifying copy should not affect original")
 		}
 	})
 }
