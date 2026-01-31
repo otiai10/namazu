@@ -94,6 +94,24 @@ export interface UserProfile {
   updatedAt: string
 }
 
+// Billing types
+export interface BillingStatus {
+  plan: string
+  hasActiveSubscription: boolean
+  subscriptionStatus?: string
+  subscriptionEndsAt?: string
+  stripeCustomerId?: string
+}
+
+export interface CheckoutSessionResponse {
+  sessionId: string
+  sessionUrl: string
+}
+
+export interface PortalSessionResponse {
+  url: string
+}
+
 // API functions
 export const api = {
   // Subscriptions
@@ -143,6 +161,27 @@ export const api = {
   // Health check (public)
   async health(): Promise<{ status: string }> {
     const response = await fetch('/health')
+    return response.json()
+  },
+
+  // Billing
+  async getBillingStatus(): Promise<BillingStatus> {
+    const response = await fetchWithAuth('/billing/status')
+    return response.json()
+  },
+
+  async createCheckoutSession(): Promise<CheckoutSessionResponse> {
+    const response = await fetchWithAuth('/billing/create-checkout-session', {
+      method: 'POST',
+    })
+    return response.json()
+  },
+
+  async getPortalSession(returnUrl?: string): Promise<PortalSessionResponse> {
+    const url = returnUrl
+      ? `/billing/portal-session?return_url=${encodeURIComponent(returnUrl)}`
+      : '/billing/portal-session'
+    const response = await fetchWithAuth(url)
     return response.json()
   },
 }
