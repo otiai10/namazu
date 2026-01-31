@@ -14,6 +14,8 @@ type Config struct {
 	Store         *StoreConfig         `yaml:"store,omitempty"`
 	API           *APIConfig           `yaml:"api,omitempty"`
 	Auth          *AuthConfig          `yaml:"auth,omitempty"`
+	Billing       *BillingConfig       `yaml:"billing,omitempty"`
+	Security      *SecurityConfig      `yaml:"security,omitempty"`
 }
 
 // AuthConfig represents the authentication configuration
@@ -22,6 +24,15 @@ type AuthConfig struct {
 	ProjectID   string `yaml:"project_id"`            // Firebase project ID
 	TenantID    string `yaml:"tenant_id,omitempty"`   // Optional: Identity Platform tenant ID
 	Credentials string `yaml:"credentials,omitempty"` // Path to service account JSON (local dev)
+}
+
+// BillingConfig represents Stripe billing configuration
+type BillingConfig struct {
+	SecretKey     string `yaml:"secret_key"`     // STRIPE_SECRET_KEY
+	WebhookSecret string `yaml:"webhook_secret"` // STRIPE_WEBHOOK_SECRET
+	PriceID       string `yaml:"price_id"`       // STRIPE_PRICE_ID (Pro plan)
+	SuccessURL    string `yaml:"success_url"`    // Redirect after checkout success
+	CancelURL     string `yaml:"cancel_url"`     // Redirect after checkout cancel
 }
 
 // APIConfig represents the REST API server configuration
@@ -63,6 +74,92 @@ type FilterConfig struct {
 	Prefectures []string `yaml:"prefectures,omitempty"`
 }
 
+// SecurityConfig represents security-related configuration
+type SecurityConfig struct {
+	// AllowLocalWebhooks allows HTTP URLs for localhost webhooks (development mode)
+	AllowLocalWebhooks bool `yaml:"allow_local_webhooks"`
+
+	// CORSAllowedOrigins is a comma-separated list of allowed CORS origins
+	// Use "*" to allow all origins (not recommended for production)
+	CORSAllowedOrigins string `yaml:"cors_allowed_origins"`
+
+	// RateLimitEnabled enables rate limiting (default: true in production)
+	RateLimitEnabled bool `yaml:"rate_limit_enabled"`
+
+	// RateLimitRequestsPerMinute is the default rate limit per IP (default: 100)
+	RateLimitRequestsPerMinute int `yaml:"rate_limit_requests_per_minute"`
+
+	// RateLimitSubscriptionCreation is the rate limit for subscription creation per IP (default: 10)
+	RateLimitSubscriptionCreation int `yaml:"rate_limit_subscription_creation"`
+}
+
+// GetCORSAllowedOrigins returns the list of allowed CORS origins
+func (s *SecurityConfig) GetCORSAllowedOrigins() []string {
+	if s == nil || s.CORSAllowedOrigins == "" {
+		return nil
+	}
+	origins := make([]string, 0)
+	for _, o := range splitAndTrim(s.CORSAllowedOrigins, ",") {
+		if o != "" {
+			origins = append(origins, o)
+		}
+	}
+	return origins
+}
+
+// splitAndTrim splits a string by separator and trims whitespace
+func splitAndTrim(s, sep string) []string {
+	parts := make([]string, 0)
+	for _, p := range splitString(s, sep) {
+		trimmed := trimSpace(p)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return parts
+}
+
+// splitString splits a string by separator (simple implementation)
+func splitString(s, sep string) []string {
+	if s == "" {
+		return nil
+	}
+	result := make([]string, 0)
+	for len(s) > 0 {
+		idx := indexOf(s, sep)
+		if idx < 0 {
+			result = append(result, s)
+			break
+		}
+		result = append(result, s[:idx])
+		s = s[idx+len(sep):]
+	}
+	return result
+}
+
+// indexOf returns the index of substr in s, or -1 if not found
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+// trimSpace trims whitespace from a string
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+	return s[start:end]
+}
+
 // LoadFromEnv creates configuration entirely from environment variables.
 // This is the recommended way to configure the application.
 //
@@ -79,6 +176,16 @@ type FilterConfig struct {
 //   - NAMAZU_AUTH_PROJECT_ID: Firebase project ID for auth
 //   - NAMAZU_AUTH_CREDENTIALS: path to service account JSON (local dev only)
 //   - NAMAZU_AUTH_TENANT_ID: Identity Platform tenant ID (optional)
+//   - STRIPE_SECRET_KEY: Stripe API secret key
+//   - STRIPE_WEBHOOK_SECRET: Stripe webhook signing secret
+//   - STRIPE_PRICE_ID: Stripe price ID for Pro plan
+//   - STRIPE_SUCCESS_URL: Redirect URL after successful checkout
+//   - STRIPE_CANCEL_URL: Redirect URL after canceled checkout
+//   - NAMAZU_ALLOW_LOCAL_WEBHOOKS: "true" to allow HTTP localhost webhooks (dev only)
+//   - NAMAZU_CORS_ALLOWED_ORIGINS: comma-separated list of allowed CORS origins
+//   - NAMAZU_RATE_LIMIT_ENABLED: "true" to enable rate limiting (default: true)
+//   - NAMAZU_RATE_LIMIT_RPM: requests per minute per IP (default: 100)
+//   - NAMAZU_RATE_LIMIT_SUBSCRIPTION: subscription creation rate limit per IP (default: 10)
 func LoadFromEnv() (*Config, error) {
 	cfg := &Config{}
 	applyEnvOverrides(cfg)
@@ -197,6 +304,104 @@ func applyEnvOverrides(cfg *Config) {
 		}
 		cfg.Auth.TenantID = authTenantID
 	}
+
+	// Apply billing overrides
+	if secretKey := os.Getenv("STRIPE_SECRET_KEY"); secretKey != "" {
+		if cfg.Billing == nil {
+			cfg.Billing = &BillingConfig{}
+		}
+		cfg.Billing.SecretKey = secretKey
+	}
+	if webhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET"); webhookSecret != "" {
+		if cfg.Billing == nil {
+			cfg.Billing = &BillingConfig{}
+		}
+		cfg.Billing.WebhookSecret = webhookSecret
+	}
+	if priceID := os.Getenv("STRIPE_PRICE_ID"); priceID != "" {
+		if cfg.Billing == nil {
+			cfg.Billing = &BillingConfig{}
+		}
+		cfg.Billing.PriceID = priceID
+	}
+	if successURL := os.Getenv("STRIPE_SUCCESS_URL"); successURL != "" {
+		if cfg.Billing == nil {
+			cfg.Billing = &BillingConfig{}
+		}
+		cfg.Billing.SuccessURL = successURL
+	}
+	if cancelURL := os.Getenv("STRIPE_CANCEL_URL"); cancelURL != "" {
+		if cfg.Billing == nil {
+			cfg.Billing = &BillingConfig{}
+		}
+		cfg.Billing.CancelURL = cancelURL
+	}
+
+	// Apply security overrides
+	if allowLocal := os.Getenv("NAMAZU_ALLOW_LOCAL_WEBHOOKS"); allowLocal == "true" {
+		if cfg.Security == nil {
+			cfg.Security = &SecurityConfig{}
+		}
+		cfg.Security.AllowLocalWebhooks = true
+	}
+	if corsOrigins := os.Getenv("NAMAZU_CORS_ALLOWED_ORIGINS"); corsOrigins != "" {
+		if cfg.Security == nil {
+			cfg.Security = &SecurityConfig{}
+		}
+		cfg.Security.CORSAllowedOrigins = corsOrigins
+	}
+	if rateLimitEnabled := os.Getenv("NAMAZU_RATE_LIMIT_ENABLED"); rateLimitEnabled != "" {
+		if cfg.Security == nil {
+			cfg.Security = &SecurityConfig{}
+		}
+		cfg.Security.RateLimitEnabled = rateLimitEnabled == "true"
+	}
+	if rpm := os.Getenv("NAMAZU_RATE_LIMIT_RPM"); rpm != "" {
+		if cfg.Security == nil {
+			cfg.Security = &SecurityConfig{}
+		}
+		if v, err := parseIntEnv(rpm); err == nil {
+			cfg.Security.RateLimitRequestsPerMinute = v
+		}
+	}
+	if subLimit := os.Getenv("NAMAZU_RATE_LIMIT_SUBSCRIPTION"); subLimit != "" {
+		if cfg.Security == nil {
+			cfg.Security = &SecurityConfig{}
+		}
+		if v, err := parseIntEnv(subLimit); err == nil {
+			cfg.Security.RateLimitSubscriptionCreation = v
+		}
+	}
+}
+
+// parseIntEnv parses an integer from a string, returning an error if invalid
+func parseIntEnv(s string) (int, error) {
+	var result int
+	negative := false
+	i := 0
+
+	if len(s) == 0 {
+		return 0, fmt.Errorf("empty string")
+	}
+
+	if s[0] == '-' {
+		negative = true
+		i = 1
+	}
+
+	for ; i < len(s); i++ {
+		c := s[i]
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("invalid character: %c", c)
+		}
+		result = result*10 + int(c-'0')
+	}
+
+	if negative {
+		result = -result
+	}
+
+	return result, nil
 }
 
 // Validate checks if the configuration is valid
@@ -263,6 +468,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate billing configuration if present
+	if c.Billing != nil {
+		if err := c.Billing.Validate(); err != nil {
+			return fmt.Errorf("billing: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -299,6 +511,26 @@ func (a *AuthConfig) Validate() error {
 	}
 	if a.ProjectID == "" {
 		return fmt.Errorf("project_id is required when auth is enabled")
+	}
+	return nil
+}
+
+// Validate checks if the billing configuration is valid
+func (b *BillingConfig) Validate() error {
+	if b.SecretKey == "" {
+		return fmt.Errorf("secret_key is required")
+	}
+	if b.WebhookSecret == "" {
+		return fmt.Errorf("webhook_secret is required")
+	}
+	if b.PriceID == "" {
+		return fmt.Errorf("price_id is required")
+	}
+	if b.SuccessURL == "" {
+		return fmt.Errorf("success_url is required")
+	}
+	if b.CancelURL == "" {
+		return fmt.Errorf("cancel_url is required")
 	}
 	return nil
 }

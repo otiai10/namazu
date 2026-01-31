@@ -1262,3 +1262,113 @@ func TestAuthConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestSecurityConfig_GetCORSAllowedOrigins(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *SecurityConfig
+		expected []string
+	}{
+		{
+			name:     "nil config returns nil",
+			config:   nil,
+			expected: nil,
+		},
+		{
+			name:     "empty string returns nil",
+			config:   &SecurityConfig{CORSAllowedOrigins: ""},
+			expected: nil,
+		},
+		{
+			name:     "single origin",
+			config:   &SecurityConfig{CORSAllowedOrigins: "https://example.com"},
+			expected: []string{"https://example.com"},
+		},
+		{
+			name:     "multiple origins",
+			config:   &SecurityConfig{CORSAllowedOrigins: "https://example.com,https://app.example.com"},
+			expected: []string{"https://example.com", "https://app.example.com"},
+		},
+		{
+			name:     "origins with spaces",
+			config:   &SecurityConfig{CORSAllowedOrigins: "https://example.com, https://app.example.com"},
+			expected: []string{"https://example.com", "https://app.example.com"},
+		},
+		{
+			name:     "wildcard origin",
+			config:   &SecurityConfig{CORSAllowedOrigins: "*"},
+			expected: []string{"*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetCORSAllowedOrigins()
+			if len(result) != len(tt.expected) {
+				t.Fatalf("GetCORSAllowedOrigins() returned %d items, expected %d: %v", len(result), len(tt.expected), result)
+			}
+			for i, origin := range result {
+				if origin != tt.expected[i] {
+					t.Errorf("GetCORSAllowedOrigins()[%d] = %q, expected %q", i, origin, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSecurityConfig_EnvironmentOverrides(t *testing.T) {
+	// Save original environment
+	origAllowLocal := os.Getenv("NAMAZU_ALLOW_LOCAL_WEBHOOKS")
+	origCORSOrigins := os.Getenv("NAMAZU_CORS_ALLOWED_ORIGINS")
+	origRateLimitEnabled := os.Getenv("NAMAZU_RATE_LIMIT_ENABLED")
+	origRateLimitRPM := os.Getenv("NAMAZU_RATE_LIMIT_RPM")
+	origRateLimitSub := os.Getenv("NAMAZU_RATE_LIMIT_SUBSCRIPTION")
+
+	defer func() {
+		os.Setenv("NAMAZU_ALLOW_LOCAL_WEBHOOKS", origAllowLocal)
+		os.Setenv("NAMAZU_CORS_ALLOWED_ORIGINS", origCORSOrigins)
+		os.Setenv("NAMAZU_RATE_LIMIT_ENABLED", origRateLimitEnabled)
+		os.Setenv("NAMAZU_RATE_LIMIT_RPM", origRateLimitRPM)
+		os.Setenv("NAMAZU_RATE_LIMIT_SUBSCRIPTION", origRateLimitSub)
+	}()
+
+	t.Run("applies security environment variables", func(t *testing.T) {
+		os.Setenv("NAMAZU_SOURCE_TYPE", "p2pquake")
+		os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://test.example.com/ws")
+		os.Setenv("NAMAZU_API_ADDR", ":8080")
+		os.Setenv("NAMAZU_ALLOW_LOCAL_WEBHOOKS", "true")
+		os.Setenv("NAMAZU_CORS_ALLOWED_ORIGINS", "https://example.com,https://app.example.com")
+		os.Setenv("NAMAZU_RATE_LIMIT_ENABLED", "true")
+		os.Setenv("NAMAZU_RATE_LIMIT_RPM", "200")
+		os.Setenv("NAMAZU_RATE_LIMIT_SUBSCRIPTION", "20")
+
+		cfg, err := LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+
+		if cfg.Security == nil {
+			t.Fatal("Security config should not be nil")
+		}
+
+		if !cfg.Security.AllowLocalWebhooks {
+			t.Error("AllowLocalWebhooks should be true")
+		}
+
+		if cfg.Security.CORSAllowedOrigins != "https://example.com,https://app.example.com" {
+			t.Errorf("CORSAllowedOrigins = %q, expected %q", cfg.Security.CORSAllowedOrigins, "https://example.com,https://app.example.com")
+		}
+
+		if !cfg.Security.RateLimitEnabled {
+			t.Error("RateLimitEnabled should be true")
+		}
+
+		if cfg.Security.RateLimitRequestsPerMinute != 200 {
+			t.Errorf("RateLimitRequestsPerMinute = %d, expected %d", cfg.Security.RateLimitRequestsPerMinute, 200)
+		}
+
+		if cfg.Security.RateLimitSubscriptionCreation != 20 {
+			t.Errorf("RateLimitSubscriptionCreation = %d, expected %d", cfg.Security.RateLimitSubscriptionCreation, 20)
+		}
+	})
+}
