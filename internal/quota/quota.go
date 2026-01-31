@@ -11,10 +11,10 @@ type PlanLimits struct {
 
 var (
 	// FreePlanLimits defines limits for free plan users
-	FreePlanLimits = PlanLimits{MaxSubscriptions: 3}
+	FreePlanLimits = PlanLimits{MaxSubscriptions: 1}
 
 	// ProPlanLimits defines limits for pro plan users
-	ProPlanLimits = PlanLimits{MaxSubscriptions: 50}
+	ProPlanLimits = PlanLimits{MaxSubscriptions: 12}
 )
 
 // GetLimits returns limits for a plan

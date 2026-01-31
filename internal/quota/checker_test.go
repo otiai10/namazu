@@ -48,12 +48,9 @@ func (m *mockSubscriptionRepo) Delete(ctx context.Context, id string) error {
 }
 
 func TestChecker_CanCreateSubscription_FreeUserUnderLimit(t *testing.T) {
-	// Free user with 2 subscriptions should be able to create one more
+	// Free user with 0 subscriptions should be able to create one (limit is 1)
 	repo := &mockSubscriptionRepo{
-		subscriptions: []subscription.Subscription{
-			{ID: "1", UserID: "user1"},
-			{ID: "2", UserID: "user1"},
-		},
+		subscriptions: []subscription.Subscription{},
 	}
 	checker := NewChecker(repo)
 
@@ -68,12 +65,10 @@ func TestChecker_CanCreateSubscription_FreeUserUnderLimit(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_FreeUserAtLimit(t *testing.T) {
-	// Free user with 3 subscriptions should NOT be able to create one more
+	// Free user with 1 subscription should NOT be able to create one more (limit is 1)
 	repo := &mockSubscriptionRepo{
 		subscriptions: []subscription.Subscription{
 			{ID: "1", UserID: "user1"},
-			{ID: "2", UserID: "user1"},
-			{ID: "3", UserID: "user1"},
 		},
 	}
 	checker := NewChecker(repo)
@@ -89,13 +84,11 @@ func TestChecker_CanCreateSubscription_FreeUserAtLimit(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_FreeUserOverLimit(t *testing.T) {
-	// Free user with 4 subscriptions (somehow) should NOT be able to create one more
+	// Free user with 2 subscriptions (somehow) should NOT be able to create one more
 	repo := &mockSubscriptionRepo{
 		subscriptions: []subscription.Subscription{
 			{ID: "1", UserID: "user1"},
 			{ID: "2", UserID: "user1"},
-			{ID: "3", UserID: "user1"},
-			{ID: "4", UserID: "user1"},
 		},
 	}
 	checker := NewChecker(repo)
@@ -111,7 +104,7 @@ func TestChecker_CanCreateSubscription_FreeUserOverLimit(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_ProUserCanCreateMany(t *testing.T) {
-	// Pro user with 10 subscriptions should be able to create more
+	// Pro user with 10 subscriptions should be able to create more (limit is 12)
 	subs := make([]subscription.Subscription, 10)
 	for i := range subs {
 		subs[i] = subscription.Subscription{ID: string(rune('1' + i)), UserID: "user1"}
@@ -130,8 +123,8 @@ func TestChecker_CanCreateSubscription_ProUserCanCreateMany(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_ProUserAtLimit(t *testing.T) {
-	// Pro user with 50 subscriptions should NOT be able to create more
-	subs := make([]subscription.Subscription, 50)
+	// Pro user with 12 subscriptions should NOT be able to create more
+	subs := make([]subscription.Subscription, 12)
 	for i := range subs {
 		subs[i] = subscription.Subscription{ID: string(rune(i)), UserID: "user1"}
 	}
@@ -149,12 +142,10 @@ func TestChecker_CanCreateSubscription_ProUserAtLimit(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_UnknownPlanDefaultsToFree(t *testing.T) {
-	// Unknown plan with 3 subscriptions should NOT be able to create more (uses free limits)
+	// Unknown plan with 1 subscription should NOT be able to create more (uses free limits)
 	repo := &mockSubscriptionRepo{
 		subscriptions: []subscription.Subscription{
 			{ID: "1", UserID: "user1"},
-			{ID: "2", UserID: "user1"},
-			{ID: "3", UserID: "user1"},
 		},
 	}
 	checker := NewChecker(repo)
@@ -170,12 +161,10 @@ func TestChecker_CanCreateSubscription_UnknownPlanDefaultsToFree(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_EmptyPlanDefaultsToFree(t *testing.T) {
-	// Empty plan with 3 subscriptions should NOT be able to create more (uses free limits)
+	// Empty plan with 1 subscription should NOT be able to create more (uses free limits)
 	repo := &mockSubscriptionRepo{
 		subscriptions: []subscription.Subscription{
 			{ID: "1", UserID: "user1"},
-			{ID: "2", UserID: "user1"},
-			{ID: "3", UserID: "user1"},
 		},
 	}
 	checker := NewChecker(repo)
@@ -228,15 +217,11 @@ func TestChecker_CanCreateSubscription_NewUserNoSubscriptions(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_OnlyCountsUserSubscriptions(t *testing.T) {
-	// User1 has 2 subscriptions, User2 has 3 subscriptions
-	// User1 should still be able to create (only their own count)
+	// User1 has 0 subscriptions, User2 has 1 subscription
+	// User1 should be able to create (only their own count matters)
 	repo := &mockSubscriptionRepo{
 		subscriptions: []subscription.Subscription{
-			{ID: "1", UserID: "user1"},
-			{ID: "2", UserID: "user1"},
-			{ID: "3", UserID: "user2"},
-			{ID: "4", UserID: "user2"},
-			{ID: "5", UserID: "user2"},
+			{ID: "1", UserID: "user2"},
 		},
 	}
 	checker := NewChecker(repo)
@@ -247,7 +232,7 @@ func TestChecker_CanCreateSubscription_OnlyCountsUserSubscriptions(t *testing.T)
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !canCreate {
-		t.Error("expected canCreate = true (user1 has only 2), got false")
+		t.Error("expected canCreate = true (user1 has 0), got false")
 	}
 }
 
