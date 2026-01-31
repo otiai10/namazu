@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/ayanel/namazu/internal/auth"
+	"github.com/ayanel/namazu/internal/billing"
+	"github.com/ayanel/namazu/internal/config"
 	"github.com/ayanel/namazu/internal/quota"
 	"github.com/ayanel/namazu/internal/store"
 	"github.com/ayanel/namazu/internal/subscription"
@@ -18,6 +20,10 @@ type RouterConfig struct {
 	UserRepo         user.Repository
 	TokenVerifier    auth.TokenVerifier // nil means no auth
 	QuotaChecker     quota.QuotaChecker // nil means no quota checking
+	BillingClient    *billing.Client    // nil means no billing
+	BillingConfig    *config.BillingConfig
+	SecurityConfig   *config.SecurityConfig // nil uses defaults
+	URLValidator     URLValidator           // nil means no URL validation
 }
 
 // NewRouter creates a new router with all API routes configured
@@ -40,8 +46,19 @@ func NewRouterWithConfig(cfg RouterConfig) http.Handler {
 		h = NewHandler(cfg.SubscriptionRepo, cfg.EventRepo)
 	}
 
+	// Set URL validator if provided
+	if cfg.URLValidator != nil {
+		h.SetURLValidator(cfg.URLValidator)
+	}
+
 	// Public routes (no auth required)
 	registerPublicRoutes(mux, h)
+
+	// Stripe webhook route (no auth required - uses signature verification)
+	if cfg.BillingClient != nil && cfg.BillingConfig != nil {
+		billingHandler := NewBillingHandler(cfg.BillingClient, cfg.UserRepo, cfg.BillingConfig)
+		registerStripeWebhookRoute(mux, billingHandler)
+	}
 
 	// Protected routes (auth required when TokenVerifier is provided)
 	if cfg.TokenVerifier != nil {
@@ -50,18 +67,25 @@ func NewRouterWithConfig(cfg RouterConfig) http.Handler {
 		registerMeRoutes(protectedMux, meHandler)
 		registerSubscriptionRoutes(protectedMux, h)
 
+		// Register billing routes if billing is configured
+		if cfg.BillingClient != nil && cfg.BillingConfig != nil {
+			billingHandler := NewBillingHandler(cfg.BillingClient, cfg.UserRepo, cfg.BillingConfig)
+			registerBillingRoutes(protectedMux, billingHandler)
+		}
+
 		// Apply auth middleware to protected routes
 		authHandler := auth.AuthMiddleware(cfg.TokenVerifier)(protectedMux)
 		mux.Handle("/api/me", authHandler)
 		mux.Handle("/api/me/", authHandler)
 		mux.Handle("/api/subscriptions", authHandler)
 		mux.Handle("/api/subscriptions/", authHandler)
+		mux.Handle("/api/billing/", authHandler)
 	} else {
 		// No auth mode (backward compatibility)
 		registerSubscriptionRoutes(mux, h)
 	}
 
-	return applyMiddlewareChain(mux)
+	return applyMiddlewareChainWithConfig(mux, cfg.SecurityConfig)
 }
 
 // registerPublicRoutes registers routes that don't require authentication
@@ -145,6 +169,56 @@ func registerSubscriptionRoutes(mux *http.ServeMux, h *Handler) {
 	})
 }
 
+// registerBillingRoutes registers billing API routes (requires auth)
+func registerBillingRoutes(mux *http.ServeMux, h *BillingHandler) {
+	mux.HandleFunc("/api/billing/status", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			h.GetStatus(w, r)
+		case http.MethodOptions:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/billing/create-checkout-session", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			h.CreateCheckoutSession(w, r)
+		case http.MethodOptions:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/billing/portal-session", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			h.GetPortalSession(w, r)
+		case http.MethodOptions:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+// registerStripeWebhookRoute registers the Stripe webhook route (no auth required)
+func registerStripeWebhookRoute(mux *http.ServeMux, h *BillingHandler) {
+	mux.HandleFunc("/api/webhooks/stripe", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			h.StripeWebhook(w, r)
+		case http.MethodOptions:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
 // applyMiddlewareChain wraps a handler with the standard middleware stack
 func applyMiddlewareChain(h http.Handler) http.Handler {
 	return Chain(
@@ -153,4 +227,56 @@ func applyMiddlewareChain(h http.Handler) http.Handler {
 		CORSMiddleware,
 		JSONContentTypeMiddleware,
 	)(h)
+}
+
+// applyMiddlewareChainWithConfig wraps a handler with the middleware stack using security config
+func applyMiddlewareChainWithConfig(h http.Handler, securityCfg *config.SecurityConfig) http.Handler {
+	middlewares := []Middleware{
+		RecoveryMiddleware,
+		LoggingMiddleware,
+	}
+
+	// Add configurable CORS middleware
+	if securityCfg != nil && len(securityCfg.GetCORSAllowedOrigins()) > 0 {
+		corsConfig := CORSConfig{
+			AllowedOrigins:   securityCfg.GetCORSAllowedOrigins(),
+			AllowCredentials: true,
+			AllowLocalhost:   securityCfg.AllowLocalWebhooks,
+		}
+		middlewares = append(middlewares, NewConfigurableCORSMiddleware(corsConfig))
+	} else {
+		// Default CORS for backward compatibility
+		middlewares = append(middlewares, CORSMiddleware)
+	}
+
+	// Add rate limiting if enabled
+	if securityCfg != nil && securityCfg.RateLimitEnabled {
+		defaultRPM := 100
+		if securityCfg.RateLimitRequestsPerMinute > 0 {
+			defaultRPM = securityCfg.RateLimitRequestsPerMinute
+		}
+
+		subscriptionRPM := 10
+		if securityCfg.RateLimitSubscriptionCreation > 0 {
+			subscriptionRPM = securityCfg.RateLimitSubscriptionCreation
+		}
+
+		rateLimitConfig := EndpointRateLimitConfig{
+			DefaultLimit: RateLimitConfig{
+				RequestsPerMinute: defaultRPM,
+				BurstSize:         defaultRPM,
+			},
+			EndpointLimits: map[string]RateLimitConfig{
+				"/api/subscriptions": {
+					RequestsPerMinute: subscriptionRPM,
+					BurstSize:         subscriptionRPM,
+				},
+			},
+		}
+		middlewares = append(middlewares, NewEndpointRateLimitMiddleware(rateLimitConfig))
+	}
+
+	middlewares = append(middlewares, JSONContentTypeMiddleware)
+
+	return Chain(middlewares...)(h)
 }

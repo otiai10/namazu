@@ -47,12 +47,18 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// URLValidator validates webhook URLs for security
+type URLValidator interface {
+	ValidateWebhookURL(url string) error
+}
+
 // Handler contains the HTTP handlers for the API
 type Handler struct {
 	subscriptionRepo subscription.Repository
 	eventRepo        store.EventRepository
 	userRepo         user.Repository
 	quotaChecker     quota.QuotaChecker
+	urlValidator     URLValidator
 }
 
 // NewHandler creates a new Handler instance (backward compatible, no quota checking)
@@ -62,6 +68,7 @@ func NewHandler(subRepo subscription.Repository, eventRepo store.EventRepository
 		eventRepo:        eventRepo,
 		userRepo:         nil,
 		quotaChecker:     nil,
+		urlValidator:     nil,
 	}
 }
 
@@ -72,7 +79,24 @@ func NewHandlerWithQuota(subRepo subscription.Repository, eventRepo store.EventR
 		eventRepo:        eventRepo,
 		userRepo:         userRepo,
 		quotaChecker:     quotaChecker,
+		urlValidator:     nil,
 	}
+}
+
+// NewHandlerWithSecurity creates a new Handler with full security support
+func NewHandlerWithSecurity(subRepo subscription.Repository, eventRepo store.EventRepository, userRepo user.Repository, quotaChecker quota.QuotaChecker, urlValidator URLValidator) *Handler {
+	return &Handler{
+		subscriptionRepo: subRepo,
+		eventRepo:        eventRepo,
+		userRepo:         userRepo,
+		quotaChecker:     quotaChecker,
+		urlValidator:     urlValidator,
+	}
+}
+
+// SetURLValidator sets the URL validator for the handler
+func (h *Handler) SetURLValidator(v URLValidator) {
+	h.urlValidator = v
 }
 
 // CreateSubscription handles POST /api/subscriptions
@@ -96,6 +120,14 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 	if req.Delivery.Type == "" || req.Delivery.URL == "" {
 		writeError(w, "delivery type and URL are required", http.StatusBadRequest)
 		return
+	}
+
+	// Validate webhook URL for security (SSRF prevention, HTTPS enforcement)
+	if req.Delivery.Type == "webhook" && h.urlValidator != nil {
+		if err := h.urlValidator.ValidateWebhookURL(req.Delivery.URL); err != nil {
+			writeError(w, "invalid webhook URL: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	sub := subscription.Subscription{
@@ -227,6 +259,14 @@ func (h *Handler) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
 	if req.Delivery.Type == "" || req.Delivery.URL == "" {
 		writeError(w, "delivery type and URL are required", http.StatusBadRequest)
 		return
+	}
+
+	// Validate webhook URL for security (SSRF prevention, HTTPS enforcement)
+	if req.Delivery.Type == "webhook" && h.urlValidator != nil {
+		if err := h.urlValidator.ValidateWebhookURL(req.Delivery.URL); err != nil {
+			writeError(w, "invalid webhook URL: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Check if subscription exists and verify ownership

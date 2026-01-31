@@ -92,6 +92,15 @@ func (m *mockUserRepo) RemoveProvider(ctx context.Context, id string, providerID
 	return nil
 }
 
+func (m *mockUserRepo) GetByStripeCustomerID(ctx context.Context, customerID string) (*user.User, error) {
+	for _, u := range m.users {
+		if u.StripeCustomerID == customerID {
+			return u, nil
+		}
+	}
+	return nil, nil
+}
+
 func TestMeHandler_GetProfile_CreatesUserOnFirstLogin(t *testing.T) {
 	userRepo := newMockUserRepo()
 	handler := NewMeHandler(userRepo)

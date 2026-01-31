@@ -906,6 +906,15 @@ func (m *quotaUserRepo) RemoveProvider(ctx context.Context, id string, providerI
 	return nil
 }
 
+func (m *quotaUserRepo) GetByStripeCustomerID(ctx context.Context, customerID string) (*user.User, error) {
+	for _, u := range m.users {
+		if u.StripeCustomerID == customerID {
+			return u, nil
+		}
+	}
+	return nil, nil
+}
+
 // mockQuotaChecker implements quota.QuotaChecker for testing
 type mockQuotaChecker struct {
 	canCreate bool
@@ -1166,4 +1175,237 @@ func TestCreateSubscription_DefaultsToFreePlanWhenUserNotFound(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected status %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
 	}
+}
+
+// mockURLValidator implements URLValidator for testing
+type mockURLValidator struct {
+	allowedURLs map[string]bool
+	rejectAll   bool
+	rejectMsg   string
+}
+
+func newMockURLValidator() *mockURLValidator {
+	return &mockURLValidator{
+		allowedURLs: make(map[string]bool),
+		rejectAll:   false,
+	}
+}
+
+func (m *mockURLValidator) ValidateWebhookURL(url string) error {
+	if m.rejectAll {
+		if m.rejectMsg != "" {
+			return errors.New(m.rejectMsg)
+		}
+		return errors.New("URL validation failed")
+	}
+	if !m.allowedURLs[url] && len(m.allowedURLs) > 0 {
+		return errors.New("URL not allowed")
+	}
+	return nil
+}
+
+func TestCreateSubscription_WithURLValidation(t *testing.T) {
+	t.Run("rejects private IP addresses", func(t *testing.T) {
+		subRepo := newMockSubscriptionRepo()
+		eventRepo := newMockEventRepo()
+
+		validator := newMockURLValidator()
+		validator.rejectAll = true
+		validator.rejectMsg = "private IP addresses are not allowed"
+
+		handler := NewHandler(subRepo, eventRepo)
+		handler.SetURLValidator(validator)
+
+		body := `{
+			"name": "Test Subscription",
+			"delivery": {
+				"type": "webhook",
+				"url": "https://10.0.0.1/webhook"
+			}
+		}`
+
+		req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.CreateSubscription(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+		}
+
+		var response ErrorResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to unmarshal response: %v", err)
+		}
+
+		if response.Error == "" {
+			t.Error("expected error message in response")
+		}
+	})
+
+	t.Run("rejects HTTP URLs", func(t *testing.T) {
+		subRepo := newMockSubscriptionRepo()
+		eventRepo := newMockEventRepo()
+
+		validator := newMockURLValidator()
+		validator.rejectAll = true
+		validator.rejectMsg = "HTTPS is required"
+
+		handler := NewHandler(subRepo, eventRepo)
+		handler.SetURLValidator(validator)
+
+		body := `{
+			"name": "Test Subscription",
+			"delivery": {
+				"type": "webhook",
+				"url": "http://example.com/webhook"
+			}
+		}`
+
+		req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.CreateSubscription(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("allows valid HTTPS URLs", func(t *testing.T) {
+		subRepo := newMockSubscriptionRepo()
+		eventRepo := newMockEventRepo()
+
+		validator := newMockURLValidator()
+		// Empty allowedURLs with rejectAll=false means allow all
+
+		handler := NewHandler(subRepo, eventRepo)
+		handler.SetURLValidator(validator)
+
+		body := `{
+			"name": "Test Subscription",
+			"delivery": {
+				"type": "webhook",
+				"url": "https://example.com/webhook"
+			}
+		}`
+
+		req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.CreateSubscription(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Errorf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("skips validation when no validator", func(t *testing.T) {
+		subRepo := newMockSubscriptionRepo()
+		eventRepo := newMockEventRepo()
+
+		handler := NewHandler(subRepo, eventRepo)
+		// No URL validator set
+
+		body := `{
+			"name": "Test Subscription",
+			"delivery": {
+				"type": "webhook",
+				"url": "http://10.0.0.1/webhook"
+			}
+		}`
+
+		req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.CreateSubscription(rec, req)
+
+		// Should succeed when no validator is configured
+		if rec.Code != http.StatusCreated {
+			t.Errorf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestUpdateSubscription_WithURLValidation(t *testing.T) {
+	t.Run("rejects invalid URLs on update", func(t *testing.T) {
+		subRepo := newMockSubscriptionRepo()
+		eventRepo := newMockEventRepo()
+
+		subRepo.subscriptions["sub-1"] = subscription.Subscription{
+			ID:   "sub-1",
+			Name: "Test Sub",
+			Delivery: subscription.DeliveryConfig{
+				Type: "webhook",
+				URL:  "https://example.com/original",
+			},
+		}
+
+		validator := newMockURLValidator()
+		validator.rejectAll = true
+		validator.rejectMsg = "localhost URLs are not allowed"
+
+		handler := NewHandler(subRepo, eventRepo)
+		handler.SetURLValidator(validator)
+
+		body := `{
+			"name": "Updated Sub",
+			"delivery": {
+				"type": "webhook",
+				"url": "https://localhost/webhook"
+			}
+		}`
+
+		req := httptest.NewRequest(http.MethodPut, "/api/subscriptions/sub-1", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.UpdateSubscription(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("allows valid URLs on update", func(t *testing.T) {
+		subRepo := newMockSubscriptionRepo()
+		eventRepo := newMockEventRepo()
+
+		subRepo.subscriptions["sub-1"] = subscription.Subscription{
+			ID:   "sub-1",
+			Name: "Test Sub",
+			Delivery: subscription.DeliveryConfig{
+				Type: "webhook",
+				URL:  "https://example.com/original",
+			},
+		}
+
+		validator := newMockURLValidator()
+		// Empty allowedURLs with rejectAll=false means allow all
+
+		handler := NewHandler(subRepo, eventRepo)
+		handler.SetURLValidator(validator)
+
+		body := `{
+			"name": "Updated Sub",
+			"delivery": {
+				"type": "webhook",
+				"url": "https://example.com/updated"
+			}
+		}`
+
+		req := httptest.NewRequest(http.MethodPut, "/api/subscriptions/sub-1", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		handler.UpdateSubscription(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+		}
+	})
 }
