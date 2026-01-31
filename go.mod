@@ -7,6 +7,7 @@ require (
 	firebase.google.com/go/v4 v4.19.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
+	github.com/stripe/stripe-go/v78 v78.12.0
 	google.golang.org/api v0.256.0
 	google.golang.org/grpc v1.76.0
 	gopkg.in/yaml.v3 v3.0.1
