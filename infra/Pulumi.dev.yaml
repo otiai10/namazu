@@ -1,0 +1,7 @@
+config:
+  gcp:project: namazu-dev
+  gcp:region: us-west1
+  gcp:zone: us-west1-b
+  namazu-infra:environment: dev
+  namazu-infra:machineType: e2-micro
+  namazu-infra:domain: ""

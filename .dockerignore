@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build outputs
+cmd/namazu/static
+web/node_modules
+web/dist
+
+# Test files
+*_test.go
+testdata
+*.test
+
+# Development files
+.env
+.env.*
+!.env.example
+*.log
+
+# Documentation
+*.md
+!README.md
+docs/
+knowledge/
+
+# Infrastructure (separate build)
+infra/
+
+# CI/CD
+.github/
+
+# Local development
+tmp/
+.cache/
+
+# Service account keys (NEVER include in image)
+*-serviceaccount.json
+*.pem
+*.key
+
+# macOS
+.DS_Store
+
+# Misc
+*.bak
+*.tmp

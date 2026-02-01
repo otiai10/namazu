@@ -1,0 +1,11 @@
+name: namazu-infra
+runtime: go
+description: Infrastructure for namazu - Earthquake notification webhook relay server
+
+config:
+  gcp:project:
+    description: GCP Project ID
+  gcp:region:
+    default: us-west1
+  gcp:zone:
+    default: us-west1-b

@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: "1.24"
+  NODE_VERSION: "22"
+
+jobs:
+  # ==========================================================================
+  # Go Tests
+  # ==========================================================================
+  test-go:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          fail_ci_if_error: false
+
+  # ==========================================================================
+  # Go Lint
+  # ==========================================================================
+  lint-go:
+    name: Go Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+
+  # ==========================================================================
+  # Frontend Tests
+  # ==========================================================================
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Build
+        run: pnpm build --outDir dist
+
+  # ==========================================================================
+  # Docker Build Test
+  # ==========================================================================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: namazu:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # Pulumi Preview (on PRs)
+  # ==========================================================================
+  pulumi-preview:
+    name: Pulumi Preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: infra/go.sum
+
+      - name: Install Pulumi
+        uses: pulumi/actions@v5
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Pulumi Preview
+        uses: pulumi/actions@v5
+        with:
+          command: preview
+          stack-name: dev
+          work-dir: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
