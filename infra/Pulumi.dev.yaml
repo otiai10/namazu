@@ -1,7 +1,8 @@
 config:
-  gcp:project: namazu-dev
+  gcp:project: namazu-live
   gcp:region: us-west1
   gcp:zone: us-west1-b
   namazu-infra:environment: dev
   namazu-infra:machineType: e2-micro
   namazu-infra:domain: ""
+encryptionsalt: v1:PMrKJ7V9tkA=:v1:TGhoNVtYK/H04sew:GePeWbkWq/7YKIGiZkZpTaW4lOfnBA==

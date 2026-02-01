@@ -6,6 +6,7 @@ import (
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/artifactregistry"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/firestore"
+	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/projects"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/serviceaccount"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
@@ -38,6 +39,35 @@ func main() {
 		namePrefix := fmt.Sprintf("namazu-%s", env)
 
 		// =================================================================
+		// Enable Required GCP APIs
+		// =================================================================
+		apis := map[string]string{
+			"compute":          "compute.googleapis.com",
+			"artifactregistry": "artifactregistry.googleapis.com",
+			"firestore":        "firestore.googleapis.com",
+			"iam":              "iam.googleapis.com",
+		}
+
+		enabledAPIs := make([]*projects.Service, 0, len(apis))
+		for name, api := range apis {
+			svc, err := projects.NewService(ctx, fmt.Sprintf("%s-enable-%s-api", namePrefix, name), &projects.ServiceArgs{
+				Service:                  pulumi.String(api),
+				DisableDependentServices: pulumi.Bool(false),
+				DisableOnDestroy:         pulumi.Bool(false),
+			})
+			if err != nil {
+				return err
+			}
+			enabledAPIs = append(enabledAPIs, svc)
+		}
+
+		// Create dependency array for resources that need APIs enabled first
+		apiDeps := make([]pulumi.Resource, len(enabledAPIs))
+		for i, api := range enabledAPIs {
+			apiDeps[i] = api
+		}
+
+		// =================================================================
 		// Artifact Registry - Docker image repository
 		// =================================================================
 		registry, err := artifactregistry.NewRepository(ctx, fmt.Sprintf("%s-registry", namePrefix), &artifactregistry.RepositoryArgs{
@@ -45,7 +75,7 @@ func main() {
 			Location:     pulumi.String(region),
 			Format:       pulumi.String("DOCKER"),
 			Description:  pulumi.String("Docker images for namazu"),
-		})
+		}, pulumi.DependsOn(apiDeps))
 		if err != nil {
 			return err
 		}
@@ -53,13 +83,14 @@ func main() {
 		// =================================================================
 		// Firestore Database
 		// =================================================================
-		_, err = firestore.NewDatabase(ctx, fmt.Sprintf("%s-firestore", namePrefix), &firestore.DatabaseArgs{
-			Name:                     pulumi.String("(default)"),
+		// Database name matches environment: "dev" or "prod"
+		firestoreDB, err := firestore.NewDatabase(ctx, fmt.Sprintf("%s-firestore", namePrefix), &firestore.DatabaseArgs{
+			Name:                     pulumi.String(env),
 			LocationId:               pulumi.String(region),
 			Type:                     pulumi.String("FIRESTORE_NATIVE"),
 			ConcurrencyMode:          pulumi.String("OPTIMISTIC"),
 			AppEngineIntegrationMode: pulumi.String("DISABLED"),
-		})
+		}, pulumi.DependsOn(apiDeps))
 		if err != nil {
 			return err
 		}
@@ -67,11 +98,12 @@ func main() {
 		// =================================================================
 		// Service Account for the application
 		// =================================================================
+		saName := fmt.Sprintf("namazu-%s-instance", env)
 		serviceAccount, err := serviceaccount.NewAccount(ctx, fmt.Sprintf("%s-sa", namePrefix), &serviceaccount.AccountArgs{
-			AccountId:   pulumi.String(fmt.Sprintf("namazu-%s", env)),
-			DisplayName: pulumi.String(fmt.Sprintf("Namazu %s Service Account", env)),
-			Description: pulumi.String("Service account for namazu application"),
-		})
+			AccountId:   pulumi.String(saName),
+			DisplayName: pulumi.String(fmt.Sprintf("Namazu %s Instance Service Account", env)),
+			Description: pulumi.String("Service account for namazu instance"),
+		}, pulumi.DependsOn(apiDeps))
 		if err != nil {
 			return err
 		}
@@ -82,7 +114,7 @@ func main() {
 		network, err := compute.NewNetwork(ctx, fmt.Sprintf("%s-network", namePrefix), &compute.NetworkArgs{
 			AutoCreateSubnetworks: pulumi.Bool(false),
 			Description:           pulumi.String("VPC network for namazu"),
-		})
+		}, pulumi.DependsOn(apiDeps))
 		if err != nil {
 			return err
 		}
@@ -193,20 +225,13 @@ func main() {
 		// =================================================================
 		// Compute Engine Instance
 		// =================================================================
-		// Startup script to install Docker and run the container
+		// Startup script for Container-Optimized OS (Docker is pre-installed)
 		startupScript := pulumi.Sprintf(`#!/bin/bash
 set -e
 
-# Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
-
-# Enable and start Docker
-systemctl enable docker
-systemctl start docker
-
-# Authenticate with Artifact Registry
-gcloud auth configure-docker %s-docker.pkg.dev --quiet
+# Container-Optimized OS has Docker pre-installed
+# Just need to authenticate with Artifact Registry
+docker-credential-gcr configure-docker --registries=%s-docker.pkg.dev
 
 # Pull and run the namazu container
 docker pull %s-docker.pkg.dev/%s/namazu/namazu:latest
@@ -218,10 +243,13 @@ docker run -d \
   -e NAMAZU_SOURCE_ENDPOINT=wss://api.p2pquake.net/v2/ws \
   -e NAMAZU_API_ADDR=:8080 \
   -e NAMAZU_STORE_PROJECT_ID=%s \
+  -e NAMAZU_STORE_DATABASE=%s \
   %s-docker.pkg.dev/%s/namazu/namazu:latest
-`, region, region, project, project, region, project)
+`, region, region, project, project, env, region, project)
 
-		instance, err := compute.NewInstance(ctx, fmt.Sprintf("%s-instance", namePrefix), &compute.InstanceArgs{
+		instanceName := fmt.Sprintf("%s-instance", namePrefix)
+		instance, err := compute.NewInstance(ctx, instanceName, &compute.InstanceArgs{
+			Name:        pulumi.String(instanceName),
 			MachineType: pulumi.String(machineType),
 			Zone:        pulumi.String(zone),
 			Tags:        pulumi.StringArray{pulumi.String("namazu-server")},
@@ -264,7 +292,8 @@ docker run -d \
 		ctx.Export("instanceName", instance.Name)
 		ctx.Export("instanceZone", pulumi.String(zone))
 		ctx.Export("externalIp", staticIP.Address)
-		ctx.Export("serviceAccountEmail", serviceAccount.Email)
+		ctx.Export("serviceAccountEmail", pulumi.Sprintf("%s@%s.iam.gserviceaccount.com", saName, project))
+		ctx.Export("firestoreDatabase", firestoreDB.Name)
 
 		if domain != "" {
 			ctx.Export("domain", pulumi.String(domain))
