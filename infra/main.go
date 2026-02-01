@@ -83,9 +83,10 @@ func main() {
 		// =================================================================
 		// Firestore Database
 		// =================================================================
-		// Database name matches environment: "dev" or "prod"
+		// Database name: "namazu-dev" or "namazu-prod" (minimum 4 characters required)
+		dbName := fmt.Sprintf("namazu-%s", env)
 		firestoreDB, err := firestore.NewDatabase(ctx, fmt.Sprintf("%s-firestore", namePrefix), &firestore.DatabaseArgs{
-			Name:                     pulumi.String(env),
+			Name:                     pulumi.String(dbName),
 			LocationId:               pulumi.String(region),
 			Type:                     pulumi.String("FIRESTORE_NATIVE"),
 			ConcurrencyMode:          pulumi.String("OPTIMISTIC"),
@@ -245,7 +246,7 @@ docker run -d \
   -e NAMAZU_STORE_PROJECT_ID=%s \
   -e NAMAZU_STORE_DATABASE=%s \
   %s-docker.pkg.dev/%s/namazu/namazu:latest
-`, region, region, project, project, env, region, project)
+`, region, region, project, project, dbName, region, project)
 
 		instanceName := fmt.Sprintf("%s-instance", namePrefix)
 		instance, err := compute.NewInstance(ctx, instanceName, &compute.InstanceArgs{
