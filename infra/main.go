@@ -38,6 +38,12 @@ func main() {
 		// Resource naming
 		namePrefix := fmt.Sprintf("namazu-%s", env)
 
+		// Source endpoint: sandbox for non-prod, production for prod
+		sourceEndpoint := "wss://api-realtime-sandbox.p2pquake.net/v2/ws"
+		if env == "prod" {
+			sourceEndpoint = "wss://api.p2pquake.net/v2/ws"
+		}
+
 		// =================================================================
 		// Enable Required GCP APIs
 		// =================================================================
@@ -346,7 +352,7 @@ fi
 				"namazu-registry":         pulumi.Sprintf("%s-docker.pkg.dev/%s/namazu", region, project),
 				"namazu-image":            pulumi.Sprintf("%s-docker.pkg.dev/%s/namazu/namazu:latest", region, project),
 				"namazu-source-type":      pulumi.String("p2pquake"),
-				"namazu-source-endpoint":  pulumi.String("wss://api.p2pquake.net/v2/ws"),
+				"namazu-source-endpoint":  pulumi.String(sourceEndpoint),
 				"namazu-api-addr":         pulumi.String(":8080"),
 				"namazu-store-project-id": pulumi.String(project),
 				"namazu-store-database":   pulumi.String(dbName),

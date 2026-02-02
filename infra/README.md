@@ -80,12 +80,12 @@ pulumi stack output
 
 デプロイ後、インスタンスに設定される環境変数:
 
-| 変数 | 値 |
-|------|-----|
-| NAMAZU_SOURCE_TYPE | p2pquake |
-| NAMAZU_SOURCE_ENDPOINT | wss://api.p2pquake.net/v2/ws |
-| NAMAZU_API_ADDR | :8080 |
-| NAMAZU_STORE_PROJECT_ID | (GCP Project ID) |
+| 変数 | stg | prod |
+|------|-----|------|
+| NAMAZU_SOURCE_TYPE | p2pquake | p2pquake |
+| NAMAZU_SOURCE_ENDPOINT | wss://api-realtime-sandbox.p2pquake.net/v2/ws | wss://api.p2pquake.net/v2/ws |
+| NAMAZU_API_ADDR | :8080 | :8080 |
+| NAMAZU_STORE_PROJECT_ID | (GCP Project ID) | (GCP Project ID) |
 
 追加の環境変数（Firebase Auth, Stripe 等）は、インスタンスにSSHして設定:
 
