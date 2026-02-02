@@ -109,6 +109,29 @@ func main() {
 			return err
 		}
 
+		// IAM bindings for the service account
+		iamRoles := []struct {
+			name string
+			role string
+		}{
+			{"artifact-registry-reader", "roles/artifactregistry.reader"},
+			{"firestore-user", "roles/datastore.user"},
+			{"logging-writer", "roles/logging.logWriter"},
+		}
+
+		iamBindings := make([]pulumi.Resource, 0, len(iamRoles))
+		for _, r := range iamRoles {
+			binding, err := projects.NewIAMMember(ctx, fmt.Sprintf("%s-sa-%s", namePrefix, r.name), &projects.IAMMemberArgs{
+				Project: pulumi.String(project),
+				Role:    pulumi.String(r.role),
+				Member:  pulumi.Sprintf("serviceAccount:%s", serviceAccount.Email),
+			})
+			if err != nil {
+				return err
+			}
+			iamBindings = append(iamBindings, binding)
+		}
+
 		// =================================================================
 		// VPC Network
 		// =================================================================
@@ -227,26 +250,67 @@ func main() {
 		// Compute Engine Instance
 		// =================================================================
 		// Startup script for Container-Optimized OS (Docker is pre-installed)
+		// Configuration values are read from instance metadata
 		startupScript := pulumi.Sprintf(`#!/bin/bash
 set -e
 
-# Container-Optimized OS has Docker pre-installed
-# Just need to authenticate with Artifact Registry
+# Container-Optimized OS has read-only root filesystem
+# Use /home/chronos which is writable
+export HOME=/home/chronos
+
+# Helper function to get metadata
+get_metadata() {
+  curl -sf "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" -H "Metadata-Flavor: Google"
+}
+
+# Read configuration from instance metadata
+IMAGE=$(get_metadata "namazu-image")
+SOURCE_TYPE=$(get_metadata "namazu-source-type")
+SOURCE_ENDPOINT=$(get_metadata "namazu-source-endpoint")
+API_ADDR=$(get_metadata "namazu-api-addr")
+STORE_PROJECT_ID=$(get_metadata "namazu-store-project-id")
+STORE_DATABASE=$(get_metadata "namazu-store-database")
+DOMAIN=$(get_metadata "namazu-domain")
+
+# Configure docker credential helper for Artifact Registry
 docker-credential-gcr configure-docker --registries=%s-docker.pkg.dev
 
-# Pull and run the namazu container
-docker pull %s-docker.pkg.dev/%s/namazu/namazu:latest
+# Pull the latest image
+docker pull ${IMAGE}
+
+# Stop and remove existing containers if they exist
+docker stop namazu 2>/dev/null || true
+docker rm namazu 2>/dev/null || true
+docker stop caddy 2>/dev/null || true
+docker rm caddy 2>/dev/null || true
+
+# Create docker network for container communication
+docker network create namazu-net 2>/dev/null || true
+
+# Run the namazu container (internal only, not exposed to host)
 docker run -d \
   --name namazu \
   --restart=always \
-  -p 8080:8080 \
-  -e NAMAZU_SOURCE_TYPE=p2pquake \
-  -e NAMAZU_SOURCE_ENDPOINT=wss://api.p2pquake.net/v2/ws \
-  -e NAMAZU_API_ADDR=:8080 \
-  -e NAMAZU_STORE_PROJECT_ID=%s \
-  -e NAMAZU_STORE_DATABASE=%s \
-  %s-docker.pkg.dev/%s/namazu/namazu:latest
-`, region, region, project, project, dbName, region, project)
+  --network namazu-net \
+  -e NAMAZU_SOURCE_TYPE=${SOURCE_TYPE} \
+  -e NAMAZU_SOURCE_ENDPOINT=${SOURCE_ENDPOINT} \
+  -e NAMAZU_API_ADDR=${API_ADDR} \
+  -e NAMAZU_STORE_PROJECT_ID=${STORE_PROJECT_ID} \
+  -e NAMAZU_STORE_DATABASE=${STORE_DATABASE} \
+  ${IMAGE}
+
+# Run Caddy for HTTPS reverse proxy (only if domain is set)
+if [ -n "${DOMAIN}" ]; then
+  docker run -d \
+    --name caddy \
+    --restart=always \
+    --network namazu-net \
+    -p 80:80 \
+    -p 443:443 \
+    -v /home/chronos/caddy_data:/data \
+    caddy caddy reverse-proxy --from ${DOMAIN} --to namazu:8080
+fi
+`, region)
 
 		instanceName := fmt.Sprintf("%s-instance", namePrefix)
 		instance, err := compute.NewInstance(ctx, instanceName, &compute.InstanceArgs{
@@ -278,10 +342,20 @@ docker run -d \
 					pulumi.String("https://www.googleapis.com/auth/cloud-platform"),
 				},
 			},
+			Metadata: pulumi.StringMap{
+				"namazu-registry":         pulumi.Sprintf("%s-docker.pkg.dev/%s/namazu", region, project),
+				"namazu-image":            pulumi.Sprintf("%s-docker.pkg.dev/%s/namazu/namazu:latest", region, project),
+				"namazu-source-type":      pulumi.String("p2pquake"),
+				"namazu-source-endpoint":  pulumi.String("wss://api.p2pquake.net/v2/ws"),
+				"namazu-api-addr":         pulumi.String(":8080"),
+				"namazu-store-project-id": pulumi.String(project),
+				"namazu-store-database":   pulumi.String(dbName),
+				"namazu-domain":           pulumi.String(domain),
+			},
 			MetadataStartupScript:  startupScript,
 			AllowStoppingForUpdate: pulumi.Bool(true),
 			Description:            pulumi.String(fmt.Sprintf("Namazu %s server", env)),
-		})
+		}, pulumi.DependsOn(iamBindings))
 		if err != nil {
 			return err
 		}
