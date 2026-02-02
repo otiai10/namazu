@@ -16,20 +16,20 @@
 infra/
 ├── main.go           # Pulumi エントリーポイント
 ├── Pulumi.yaml       # プロジェクト設定
-├── Pulumi.dev.yaml   # 開発環境
+├── Pulumi.stg.yaml   # ステージング環境
 ├── Pulumi.prod.yaml  # 本番環境
 └── go.mod
 ```
 
 ### 環境設定
 
-| 設定キー | dev | prod |
+| 設定キー | stg | prod |
 |----------|-----|------|
 | `gcp:project` | namazu-live | namazu-live |
 | `gcp:region` | us-west1 | us-west1 |
-| `namazu-infra:environment` | dev | prod |
+| `namazu-infra:environment` | stg | prod |
 | `namazu-infra:machineType` | e2-micro | e2-micro |
-| `namazu-infra:domain` | dev.namazu.live | namazu.live |
+| `namazu-infra:domain` | stg.namazu.live | namazu.live |
 
 ## デプロイフロー
 
@@ -38,11 +38,11 @@ infra/
 ```bash
 # Pulumi スタック作成
 cd infra
-pulumi stack init dev
+pulumi stack init stg
 pulumi config set gcp:project namazu-live
 pulumi config set gcp:region us-west1
-pulumi config set namazu-infra:environment dev
-pulumi config set namazu-infra:domain dev.namazu.live
+pulumi config set namazu-infra:environment stg
+pulumi config set namazu-infra:domain stg.namazu.live
 
 # インフラ構築
 pulumi up
@@ -51,13 +51,12 @@ pulumi up
 ### 日常のデプロイ
 
 ```bash
-# ビルド、プッシュ、再起動を一括実行
+# ビルド、プッシュを一括実行
 make ship
 
 # または個別に
 make build    # Docker イメージビルド (linux/amd64)
 make push     # Artifact Registry にプッシュ
-make restart  # GCE インスタンス再起動
 ```
 
 ### インフラ変更時
@@ -120,25 +119,21 @@ docker run -d \
 
 ```bash
 # シリアルポート出力
-make logs
+gcloud compute instances get-serial-port-output namazu-stg-instance --zone=us-west1-b
 
-# 起動スクリプトログ
-make logs-startup
-
-# コンテナログ
-make docker-logs
+# コンテナログ（SSHしてから）
+docker logs namazu
 ```
 
 ### SSH 接続
 
 ```bash
 # IAP 経由で SSH
-make ssh
+gcloud compute ssh namazu-stg-instance --zone=us-west1-b --tunnel-through-iap
 ```
 
-### コンテナ再起動
+### インスタンス再起動
 
 ```bash
-# イメージを再取得して再起動
-make docker-restart
+gcloud compute instances reset namazu-stg-instance --zone=us-west1-b
 ```

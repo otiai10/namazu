@@ -33,9 +33,9 @@ pulumi login --local
 ```bash
 cd infra
 
-# 開発環境
-pulumi stack init dev
-pulumi config set gcp:project YOUR_DEV_PROJECT_ID
+# ステージング環境
+pulumi stack init stg
+pulumi config set gcp:project YOUR_STG_PROJECT_ID
 
 # 本番環境
 pulumi stack init prod
@@ -91,7 +91,7 @@ pulumi stack output
 
 ```bash
 # IAP経由でSSH
-gcloud compute ssh namazu-dev-instance --zone=us-west1-b --tunnel-through-iap
+gcloud compute ssh namazu-stg-instance --zone=us-west1-b --tunnel-through-iap
 
 # 環境変数を追加してコンテナを再起動
 docker stop namazu
@@ -128,7 +128,7 @@ CI/CD に必要なシークレット:
 
 ```bash
 # シリアルポートログ
-gcloud compute instances get-serial-port-output namazu-dev-instance --zone=us-west1-b
+gcloud compute instances get-serial-port-output namazu-stg-instance --zone=us-west1-b
 
 # コンテナログ（SSHしてから）
 docker logs namazu
@@ -137,7 +137,7 @@ docker logs namazu
 ### インスタンスの再起動
 
 ```bash
-gcloud compute instances reset namazu-dev-instance --zone=us-west1-b
+gcloud compute instances reset namazu-stg-instance --zone=us-west1-b
 ```
 
 ### リソースの削除

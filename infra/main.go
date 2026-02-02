@@ -83,7 +83,7 @@ func main() {
 		// =================================================================
 		// Firestore Database
 		// =================================================================
-		// Database name: "namazu-dev" or "namazu-prod" (minimum 4 characters required)
+		// Database name: "namazu-stg" or "namazu-prod" (minimum 4 characters required)
 		dbName := fmt.Sprintf("namazu-%s", env)
 		firestoreDB, err := firestore.NewDatabase(ctx, fmt.Sprintf("%s-firestore", namePrefix), &firestore.DatabaseArgs{
 			Name:                     pulumi.String(dbName),

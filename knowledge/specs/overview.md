@@ -48,7 +48,7 @@ P2P地震情報 WebSocket API から地震情報を受信し、登録された W
 ┌─────────────────────────────────────────────────────────┐
 │                    Caddy (HTTPS)                        │
 │  - 自動 Let's Encrypt 証明書                             │
-│  - dev.namazu.live / namazu.live                        │
+│  - stg.namazu.live / namazu.live                        │
 └─────────────────────────────────────────────────────────┘
 ```
 

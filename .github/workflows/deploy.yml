@@ -8,10 +8,10 @@ on:
       environment:
         description: "Environment to deploy to"
         required: true
-        default: "dev"
+        default: "stg"
         type: choice
         options:
-          - dev
+          - stg
           - prod
 
 env:
@@ -38,7 +38,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           else
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=stg" >> $GITHUB_OUTPUT
           fi
 
       - name: Authenticate to Google Cloud
@@ -94,7 +94,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           else
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=stg" >> $GITHUB_OUTPUT
           fi
 
       - name: Setup Go
@@ -143,7 +143,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           else
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=stg" >> $GITHUB_OUTPUT
           fi
 
       - name: Restart instance to pull new image
@@ -180,7 +180,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           else
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=stg" >> $GITHUB_OUTPUT
           fi
 
       - name: Get instance IP
