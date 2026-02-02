@@ -1,12 +1,11 @@
 #!/bin/bash
-# Test authentication with Firebase Auth Emulator or Production Identity Platform
-# Usage: ./scripts/test-auth.sh
+# Test authentication with Firebase Auth Emulator
 #
-# Emulator mode (default):
-#   docker compose up -d firebase-emulators
+# Usage:
+#   podman compose up -d firebase-emulators
 #   ./scripts/test-auth.sh
 #
-# Production mode:
+# Production GCIP mode (optional):
 #   FIREBASE_API_KEY=xxx ./scripts/test-auth.sh
 
 set -e
@@ -39,7 +38,7 @@ if ! curl -s "${AUTH_BASE}/" > /dev/null 2>&1; then
     if [ -z "$FIREBASE_API_KEY" ] || [ "$FIREBASE_API_KEY" == "fake-api-key" ]; then
         echo ""
         echo "Options:"
-        echo "  1. Start emulator: docker compose up -d firebase-emulators"
+        echo "  1. Start emulator: podman compose up -d firebase-emulators"
         echo "  2. Use production: FIREBASE_API_KEY=xxx ./scripts/test-auth.sh"
         exit 1
     fi

@@ -1,9 +1,12 @@
 services:
+  # ============================================================
+  # Firebase Emulators (Auth + Firestore)
+  # ============================================================
   firebase-emulators:
     image: fixl/firebase-emulator-suite:14.15.2
     ports:
       - "4000:4000"   # Emulator UI
-      - "8080:8080"   # Firestore
+      - "8085:8080"   # Firestore (ホスト8085 → コンテナ8080)
       - "9099:9099"   # Auth
     environment:
       FIREBASE_PROJECT_ID: namazu-test
@@ -17,3 +20,56 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # ============================================================
+  # API Server (Go + air ホットリロード)
+  # ============================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      NAMAZU_SOURCE_TYPE: p2pquake
+      NAMAZU_SOURCE_ENDPOINT: wss://api-realtime-sandbox.p2pquake.net/v2/ws
+      NAMAZU_STORE_PROJECT_ID: namazu-test
+      NAMAZU_API_ADDR: ":8080"
+      NAMAZU_AUTH_ENABLED: "true"
+      NAMAZU_AUTH_PROJECT_ID: namazu-test
+      NAMAZU_AUTH_TENANT_ID: localdev
+      FIREBASE_AUTH_EMULATOR_HOST: firebase-emulators:9099
+      FIRESTORE_EMULATOR_HOST: firebase-emulators:8080
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    working_dir: /app
+    depends_on:
+      firebase-emulators:
+        condition: service_healthy
+
+  # ============================================================
+  # Web Dev Server (Vite + pnpm)
+  # ============================================================
+  web:
+    image: node:22-alpine
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_FIREBASE_API_KEY: fake-api-key
+      VITE_FIREBASE_AUTH_DOMAIN: localhost
+      VITE_FIREBASE_PROJECT_ID: namazu-test
+      VITE_FIREBASE_TENANT_ID: localdev
+      VITE_USE_AUTH_EMULATOR: "true"
+      VITE_AUTH_EMULATOR_HOST: http://localhost:9099
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm dev --host"
+    depends_on:
+      - api
+
+volumes:
+  go-mod-cache:
+  web-node-modules:

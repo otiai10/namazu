@@ -34,3 +34,4 @@ knowledge/plans
 # Node.js
 node_modules/
 
+.pnpm-store/

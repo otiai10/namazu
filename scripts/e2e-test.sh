@@ -2,15 +2,10 @@
 #
 # E2E Test Script for namazu
 #
-# This script can be run by Claude Code autonomously to verify functionality.
-# It supports two modes:
-#   1. Emulator mode (preferred): Uses Firebase Emulator for isolated testing
-#   2. Real Firestore mode: Uses real Firestore with --test-mode (auth disabled)
-#
 # Usage:
-#   ./scripts/e2e-test.sh           # Auto-detect mode
-#   ./scripts/e2e-test.sh emulator  # Force emulator mode
-#   ./scripts/e2e-test.sh real      # Force real Firestore mode
+#   ./scripts/e2e-test.sh           # Auto-detect (Emulator preferred)
+#   ./scripts/e2e-test.sh emulator  # Force Emulator mode
+#   ./scripts/e2e-test.sh real      # Force real Firestore mode (--test-mode)
 #
 
 set -e
@@ -29,7 +24,7 @@ NC='\033[0m' # No Color
 API_PORT=18080
 WEBHOOK_PORT=19090
 EMULATOR_UI_PORT=4000
-FIRESTORE_PORT=8080
+FIRESTORE_PORT=8085
 AUTH_PORT=9099
 NAMAZU_PID=""
 WEBHOOK_PID=""
@@ -38,7 +33,7 @@ cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
     [ -n "$NAMAZU_PID" ] && kill $NAMAZU_PID 2>/dev/null || true
     [ -n "$WEBHOOK_PID" ] && kill $WEBHOOK_PID 2>/dev/null || true
-    # Stop Firebase Emulator (docker compose)
+    # Stop Firebase Emulator
     if [ "$USE_EMULATOR" = true ]; then
         docker compose down 2>/dev/null || true
     fi
@@ -78,11 +73,11 @@ if [ "$MODE" = "emulator" ]; then
 elif [ "$MODE" = "real" ]; then
     USE_EMULATOR=false
 elif [ "$MODE" = "auto" ]; then
-    # Check if docker compose is available
+    # Check if docker/podman compose is available
     if command -v docker &> /dev/null && docker compose version &> /dev/null; then
         USE_EMULATOR=true
     else
-        log_warn "Docker Compose not found, using real Firestore with --test-mode"
+        log_warn "Docker/Podman Compose not found, using real Firestore with --test-mode"
         USE_EMULATOR=false
     fi
 fi
