@@ -4,5 +4,5 @@ config:
   gcp:zone: us-west1-b
   namazu-infra:environment: dev
   namazu-infra:machineType: e2-micro
-  namazu-infra:domain: ""
+  namazu-infra:domain: dev.namazu.live
 encryptionsalt: v1:PMrKJ7V9tkA=:v1:TGhoNVtYK/H04sew:GePeWbkWq/7YKIGiZkZpTaW4lOfnBA==

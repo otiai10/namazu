@@ -4,4 +4,4 @@ config:
   gcp:zone: us-west1-b
   namazu-infra:environment: prod
   namazu-infra:machineType: e2-micro
-  namazu-infra:domain: namazu.example.com
+  namazu-infra:domain: namazu.live
