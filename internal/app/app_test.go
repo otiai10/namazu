@@ -676,7 +676,7 @@ func TestApp_Integration(t *testing.T) {
 		defer cancel()
 
 		// Start Run in goroutine
-		go app.Run(ctx)
+		go func() { _ = app.Run(ctx) }()
 
 		// Wait for connection
 		time.Sleep(50 * time.Millisecond)

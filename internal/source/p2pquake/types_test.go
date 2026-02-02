@@ -514,7 +514,7 @@ func BenchmarkScaleToSeverity(b *testing.B) {
 // Benchmark ParseP2PTime
 func BenchmarkParseP2PTime(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ParseP2PTime("2024/01/15 12:34:56")
+		_, _ = ParseP2PTime("2024/01/15 12:34:56")
 	}
 }
 

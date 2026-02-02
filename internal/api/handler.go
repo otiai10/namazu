@@ -452,7 +452,7 @@ func writeJSON(w http.ResponseWriter, data interface{}, status int) {
 
 func writeError(w http.ResponseWriter, message string, status int) {
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: message})
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: message})
 }
 
 // copyDeliveryConfig creates an immutable copy of DeliveryConfig

@@ -937,7 +937,7 @@ func TestCreateSubscription_Returns403WhenQuotaExceeded(t *testing.T) {
 		UID:  "test-user-uid",
 		Plan: user.PlanFree,
 	}
-	userRepo.Create(context.Background(), testUser)
+	_, _ = userRepo.Create(context.Background(), testUser)
 
 	// Create quota checker that denies creation
 	quotaChecker := &mockQuotaChecker{canCreate: false, err: nil}
@@ -989,7 +989,7 @@ func TestCreateSubscription_AllowsCreationWithinQuota(t *testing.T) {
 		UID:  "test-user-uid",
 		Plan: user.PlanFree,
 	}
-	userRepo.Create(context.Background(), testUser)
+	_, _ = userRepo.Create(context.Background(), testUser)
 
 	// Create quota checker that allows creation
 	quotaChecker := &mockQuotaChecker{canCreate: true, err: nil}
@@ -1059,7 +1059,7 @@ func TestCreateSubscription_Returns500OnQuotaCheckError(t *testing.T) {
 		UID:  "test-user-uid",
 		Plan: user.PlanFree,
 	}
-	userRepo.Create(context.Background(), testUser)
+	_, _ = userRepo.Create(context.Background(), testUser)
 
 	// Create quota checker that returns an error
 	quotaChecker := &mockQuotaChecker{canCreate: false, err: errors.New("database error")}
@@ -1102,7 +1102,7 @@ func TestCreateSubscription_UsesUserPlanFromUserRepo(t *testing.T) {
 		UID:  "pro-user-uid",
 		Plan: user.PlanPro,
 	}
-	userRepo.Create(context.Background(), proUser)
+	_, _ = userRepo.Create(context.Background(), proUser)
 
 	// Use real quota checker to verify plan is retrieved correctly
 	quotaChecker := quota.NewChecker(subRepo)

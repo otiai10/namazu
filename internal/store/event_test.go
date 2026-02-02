@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -252,7 +253,7 @@ func TestCopyStringSlice(t *testing.T) {
 			}
 
 			// Verify it's a copy, not the same slice
-			if tt.input != nil && len(tt.input) > 0 {
+			if len(tt.input) > 0 {
 				tt.input[0] = "modified"
 				if result[0] == "modified" {
 					t.Error("copyStringSlice should return a defensive copy")
@@ -278,7 +279,7 @@ func TestNewFirestoreEventRepository(t *testing.T) {
 func TestFirestoreEventRepository_Create_NilClient(t *testing.T) {
 	repo := NewFirestoreEventRepository(nil)
 
-	_, err := repo.Create(nil, EventRecord{ID: "test"})
+	_, err := repo.Create(context.TODO(), EventRecord{ID: "test"})
 	if err == nil {
 		t.Fatal("Create() should return error for nil client")
 	}
@@ -292,7 +293,7 @@ func TestFirestoreEventRepository_Create_NilClient(t *testing.T) {
 func TestFirestoreEventRepository_Get_NilClient(t *testing.T) {
 	repo := NewFirestoreEventRepository(nil)
 
-	_, err := repo.Get(nil, "test-id")
+	_, err := repo.Get(context.TODO(), "test-id")
 	if err == nil {
 		t.Fatal("Get() should return error for nil client")
 	}
@@ -311,7 +312,7 @@ func TestFirestoreEventRepository_Get_EmptyID(t *testing.T) {
 		collection: "events",
 	}
 
-	_, err := repo.Get(nil, "")
+	_, err := repo.Get(context.TODO(), "")
 	if err == nil {
 		t.Fatal("Get() should return error for empty ID")
 	}
@@ -320,7 +321,7 @@ func TestFirestoreEventRepository_Get_EmptyID(t *testing.T) {
 func TestFirestoreEventRepository_List_NilClient(t *testing.T) {
 	repo := NewFirestoreEventRepository(nil)
 
-	_, err := repo.List(nil, 10, nil)
+	_, err := repo.List(context.TODO(), 10, nil)
 	if err == nil {
 		t.Fatal("List() should return error for nil client")
 	}

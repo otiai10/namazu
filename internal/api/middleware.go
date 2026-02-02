@@ -318,7 +318,7 @@ func NewRateLimitMiddleware(limiter RateLimiter) Middleware {
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error":"rate limit exceeded"}`))
+				_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
 				return
 			}
 
@@ -414,7 +414,7 @@ func NewEndpointRateLimitMiddleware(config EndpointRateLimitConfig) Middleware {
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				w.Write([]byte(`{"error":"rate limit exceeded"}`))
+				_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
 				return
 			}
 

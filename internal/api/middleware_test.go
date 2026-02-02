@@ -64,7 +64,7 @@ func TestChain(t *testing.T) {
 func TestLoggingMiddleware(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	wrapped := LoggingMiddleware(handler)
@@ -254,7 +254,7 @@ func TestJSONContentTypeMiddleware(t *testing.T) {
 func TestRateLimitMiddleware(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	t.Run("allows requests under limit", func(t *testing.T) {

@@ -229,7 +229,7 @@ func TestClient_MessageParsing_Code551(t *testing.T) {
 		}
 
 		data, _ := json.Marshal(quake)
-		conn.WriteMessage(websocket.TextMessage, data)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
 
 		// Keep connection open
 		time.Sleep(200 * time.Millisecond)
@@ -244,7 +244,7 @@ func TestClient_MessageParsing_Code551(t *testing.T) {
 	defer cancel()
 
 	// Start client
-	go client.Connect(ctx)
+	go func() { _ = client.Connect(ctx) }()
 
 	// Wait for event
 	select {
@@ -273,7 +273,7 @@ func TestClient_MessageParsing_FilterNon551(t *testing.T) {
 			"time": "2024/01/15 12:34:56",
 		}
 		data, _ := json.Marshal(message)
-		conn.WriteMessage(websocket.TextMessage, data)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
 
 		time.Sleep(200 * time.Millisecond)
 	})
@@ -285,7 +285,7 @@ func TestClient_MessageParsing_FilterNon551(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go client.Connect(ctx)
+	go func() { _ = client.Connect(ctx) }()
 
 	// Should NOT receive event (filtered out)
 	select {
@@ -307,9 +307,9 @@ func TestClient_MessageParsing_Deduplication(t *testing.T) {
 		data, _ := json.Marshal(quake)
 
 		// Send same message twice
-		conn.WriteMessage(websocket.TextMessage, data)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
 		time.Sleep(50 * time.Millisecond)
-		conn.WriteMessage(websocket.TextMessage, data)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
 
 		time.Sleep(200 * time.Millisecond)
 	})
@@ -321,7 +321,7 @@ func TestClient_MessageParsing_Deduplication(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go client.Connect(ctx)
+	go func() { _ = client.Connect(ctx) }()
 
 	// Should only receive ONE event (second is duplicate)
 	receivedCount := 0
@@ -422,7 +422,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start client
-	go client.Connect(ctx)
+	go func() { _ = client.Connect(ctx) }()
 
 	// Give it time to connect
 	time.Sleep(100 * time.Millisecond)

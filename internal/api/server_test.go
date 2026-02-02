@@ -88,7 +88,7 @@ func TestNewServerWithHandler(t *testing.T) {
 	// Create a custom handler
 	customHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("custom"))
+		_, _ = w.Write([]byte("custom"))
 	})
 
 	server := NewServerWithHandler(":9090", customHandler, subRepo, eventRepo)

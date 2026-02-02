@@ -92,7 +92,7 @@ func NewRouterWithConfig(cfg RouterConfig) http.Handler {
 func registerPublicRoutes(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
