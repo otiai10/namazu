@@ -23,9 +23,9 @@ RUN pnpm install --frozen-lockfile
 # Copy frontend source files
 COPY web/ ./web/
 
-# Build frontend (outputs to static/)
+# Build frontend (outputs to ../cmd/namazu/static per vite.config.ts)
 WORKDIR /app/web
-RUN pnpm build --outDir /app/static
+RUN pnpm build
 
 # =============================================================================
 # Stage 2: Build Go Binary
@@ -47,7 +47,7 @@ RUN go mod download
 COPY . .
 
 # Copy frontend build output to embed location
-COPY --from=frontend-builder /app/static ./cmd/namazu/static
+COPY --from=frontend-builder /app/cmd/namazu/static ./cmd/namazu/static
 
 # Build the binary
 # CGO_ENABLED=0 for static binary
