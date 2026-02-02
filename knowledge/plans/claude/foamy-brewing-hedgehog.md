@@ -395,13 +395,667 @@ source .env.test && go run ./cmd/namazu/
 
 ---
 
+## Phase 4.2 詳細実装計画: Webhook リトライ
+
+### 概要
+Webhook 配信失敗時に指数バックオフでリトライする機能を実装。
+
+### アーキテクチャ
+```
+┌─────────────────────────────────────┐
+│  App.handleEvent()                  │
+│  - Subscription から RetryConfig 取得│
+└──────────────────┬──────────────────┘
+                   │
+          ┌────────▼────────────┐
+          │ RetryingSender      │
+          │ - Decorator Pattern │
+          │ - 指数バックオフ     │
+          └────────┬────────────┘
+                   │
+          ┌────────▼────────────┐
+          │ Sender.Send()       │
+          │ (既存ロジック)       │
+          └─────────────────────┘
+```
+
+### 新規ファイル
+
+#### 1. `internal/delivery/webhook/retry.go`
+```go
+package webhook
+
+import (
+    "context"
+    "time"
+)
+
+// RetryConfig holds retry settings
+type RetryConfig struct {
+    Enabled    bool `json:"enabled"`
+    MaxRetries int  `json:"max_retries"` // Default: 3
+    InitialMs  int  `json:"initial_ms"`  // Default: 1000
+    MaxMs      int  `json:"max_ms"`      // Default: 60000
+}
+
+// DefaultRetryConfig returns sensible defaults
+func DefaultRetryConfig() RetryConfig {
+    return RetryConfig{
+        Enabled:    true,
+        MaxRetries: 3,
+        InitialMs:  1000,
+        MaxMs:      60000,
+    }
+}
+
+// RetryingSender wraps a Sender with retry logic
+type RetryingSender struct {
+    sender *Sender
+    config RetryConfig
+}
+
+// NewRetryingSender creates a new retrying sender
+func NewRetryingSender(sender *Sender, config RetryConfig) *RetryingSender
+
+// Send attempts delivery with retries using exponential backoff
+func (r *RetryingSender) Send(ctx context.Context, target Target, payload []byte) DeliveryResult
+
+// SendAll sends to all targets with individual retry logic
+func (r *RetryingSender) SendAll(ctx context.Context, targets []Target, payload []byte) []DeliveryResult
+```
+
+### リトライロジック
+
+**バックオフ計算:**
+```
+Attempt 1: 即座
+Attempt 2: InitialMs (1000ms)
+Attempt 3: InitialMs * 2 (2000ms)
+Attempt 4: InitialMs * 4 (4000ms)
+...
+Cap at MaxMs (60000ms)
+```
+
+**リトライ可能エラー:**
+- HTTP 5xx (サーバーエラー)
+- HTTP 408, 429 (タイムアウト, レートリミット)
+- 接続エラー、タイムアウト
+
+**リトライ不可エラー:**
+- HTTP 4xx (408, 429 除く)
+- 400, 401, 403, 404 (設定ミス)
+
+### 変更ファイル
+
+#### 1. `internal/subscription/subscription.go`
+```go
+type DeliveryConfig struct {
+    Type   string       `json:"type" firestore:"type"`
+    URL    string       `json:"url" firestore:"url"`
+    Secret string       `json:"secret" firestore:"secret"`
+    Retry  *RetryConfig `json:"retry,omitempty" firestore:"retry,omitempty"` // 追加
+}
+```
+
+#### 2. `internal/delivery/webhook/result.go` (または sender.go)
+```go
+type DeliveryResult struct {
+    URL          string
+    StatusCode   int
+    Success      bool
+    Error        string
+    ResponseTime time.Duration
+    RetryCount   int  // 追加: 実際のリトライ回数
+}
+```
+
+#### 3. `internal/app/app.go`
+```go
+// handleEvent 内で RetryingSender を使用
+retryConfig := webhook.DefaultRetryConfig()
+if sub.Delivery.Retry != nil {
+    retryConfig = *sub.Delivery.Retry
+}
+retrySender := webhook.NewRetryingSender(a.sender, retryConfig)
+```
+
+### テストケース
+1. 成功時はリトライなし
+2. 5xx エラーでリトライ実行
+3. 4xx エラーでリトライなし
+4. MaxRetries 到達で停止
+5. バックオフ時間の検証
+
+### 検証方法
+```bash
+# ユニットテスト
+go test ./internal/delivery/webhook/... -v -run TestRetry
+
+# E2E テスト
+./scripts/e2e-test.sh
+```
+
+---
+
+## Phase 4.3 詳細実装計画: サブスクリプション数制限
+
+### 概要
+ユーザーのプランに応じてサブスクリプション数を制限。
+
+### 制限値
+| プラン | アクティブ Subscription 数 |
+|--------|---------------------------|
+| Free   | 3                         |
+| Pro    | 50                        |
+
+### 新規ファイル
+
+#### 1. `internal/quota/quota.go`
+```go
+package quota
+
+import "context"
+
+// PlanLimits defines limits per plan
+type PlanLimits struct {
+    MaxSubscriptions int
+}
+
+var (
+    FreePlanLimits = PlanLimits{MaxSubscriptions: 3}
+    ProPlanLimits  = PlanLimits{MaxSubscriptions: 50}
+)
+
+// GetLimits returns limits for a plan
+func GetLimits(plan string) PlanLimits
+
+// QuotaChecker checks if operation is allowed
+type QuotaChecker interface {
+    CanCreateSubscription(ctx context.Context, userID string, plan string) (bool, error)
+}
+```
+
+#### 2. `internal/quota/checker.go`
+```go
+package quota
+
+// Checker implements QuotaChecker using subscription repository
+type Checker struct {
+    subRepo subscription.Repository
+}
+
+func NewChecker(subRepo subscription.Repository) *Checker
+
+func (c *Checker) CanCreateSubscription(ctx context.Context, userID, plan string) (bool, error) {
+    // 1. Get current subscription count for user
+    // 2. Compare with plan limits
+    // 3. Return true if under limit
+}
+```
+
+### 変更ファイル
+
+#### 1. `internal/api/handler.go`
+```go
+func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
+    // 既存コード...
+
+    // クォータチェック追加
+    user := auth.UserFromContext(r.Context())
+    if user != nil {
+        canCreate, err := h.quotaChecker.CanCreateSubscription(r.Context(), user.ID, user.Plan)
+        if err != nil {
+            // エラーハンドリング
+        }
+        if !canCreate {
+            http.Error(w, "Subscription limit reached", http.StatusForbidden)
+            return
+        }
+    }
+
+    // 既存の作成ロジック...
+}
+```
+
+#### 2. `internal/api/router.go`
+```go
+type RouterConfig struct {
+    SubscriptionRepo subscription.Repository
+    EventRepo        store.EventRepository
+    TokenVerifier    auth.TokenVerifier
+    UserRepo         user.Repository
+    QuotaChecker     quota.QuotaChecker  // 追加
+}
+```
+
+### テストケース
+1. Free ユーザーが 3 つまで作成可能
+2. Free ユーザーが 4 つ目で拒否
+3. Pro ユーザーが 50 まで作成可能
+4. 認証なし（--test-mode）では制限なし
+
+### 検証方法
+```bash
+# ユニットテスト
+go test ./internal/quota/... -v
+
+# E2E テスト（制限テスト追加後）
+./scripts/e2e-test.sh
+```
+
+---
+
+## Phase 4 実装順序
+
+1. **Phase 4.2: リトライ** (優先度: 高)
+   - `internal/delivery/webhook/retry.go` 作成
+   - `internal/delivery/webhook/retry_test.go` 作成
+   - `DeliveryConfig` に `Retry` フィールド追加
+   - `app.go` で RetryingSender 使用
+   - E2E テストで検証
+
+2. **Phase 4.3: サブスクリプション制限** (優先度: 中)
+   - `internal/quota/` パッケージ作成
+   - `handler.go` にクォータチェック追加
+   - E2E テストに制限テスト追加
+
+### 関連ファイル一覧
+
+**新規作成:**
+- `internal/delivery/webhook/retry.go`
+- `internal/delivery/webhook/retry_test.go`
+- `internal/quota/quota.go`
+- `internal/quota/checker.go`
+- `internal/quota/checker_test.go`
+
+**変更:**
+- `internal/subscription/subscription.go` - RetryConfig 追加
+- `internal/delivery/webhook/sender.go` - DeliveryResult に RetryCount 追加
+- `internal/app/app.go` - RetryingSender 使用
+- `internal/api/handler.go` - クォータチェック追加
+- `internal/api/router.go` - QuotaChecker 追加
+- `cmd/namazu/main.go` - QuotaChecker 初期化
+
+---
+
 ### Phase 5: Web UI・課金モデル
 **目標**: 一般公開サービス化
 
+#### 技術決定
+| 項目 | 選択 |
+|------|------|
+| ホスティング | SPA + 同一サーバー（Go が静的ファイルを embed で配信） |
+| フロントエンド | React + Vite + TypeScript + TanStack Router |
+| API | REST（現行 API をそのまま使用） |
+| 課金 | Stripe |
+
+---
+
+## 課金モデル（確定）
+
+### プラン比較
+
+| 機能 | Free | Pro (¥500/月) |
+|------|------|---------------|
+| **サブスクリプション数** | 1 | 12 |
+| **配信先** | Webhook のみ | Webhook, Slack, Discord, LINE, Email |
+| **フィルタ** | 基本（震度、地域） | 詳細（震源深さ、マグニチュード等） |
+| **カスタムペイロード** | ✗ | ✓ |
+| **配信履歴閲覧** | ✗ | ✓ |
+| **課金サイクル** | - | 月額のみ |
+
+### 配信先タイプ（DeliveryType）
+
+| タイプ | Free | Pro | 説明 |
+|--------|------|-----|------|
+| `webhook` | ✓ | ✓ | 汎用 HTTP POST |
+| `slack` | ✗ | ✓ | Slack Incoming Webhook |
+| `discord` | ✗ | ✓ | Discord Webhook |
+| `line` | ✗ | ✓ | LINE Notify |
+| `email` | ✗ | ✓ | メール通知 |
+
+### Pro 限定機能
+
+1. **詳細フィルタ**
+   - 震源深さ（MinDepth, MaxDepth）
+   - マグニチュード（MinMagnitude）
+   - 津波警報有無
+
+2. **カスタムペイロード**
+   - テンプレートで Webhook ボディをカスタマイズ
+   - Mustache / Go template 形式
+
+3. **配信履歴**
+   - 過去30日分の配信ログ閲覧
+   - 成功/失敗、レスポンスタイム
+
+### 実装への影響
+
+#### `internal/quota/quota.go` 更新
+```go
+var (
+    FreePlanLimits = PlanLimits{MaxSubscriptions: 1}   // 変更: 3 → 1
+    ProPlanLimits  = PlanLimits{MaxSubscriptions: 12}  // 変更: 50 → 12
+)
+```
+
+#### `internal/subscription/subscription.go` 更新
+```go
+type DeliveryConfig struct {
+    Type     string       `json:"type" firestore:"type"`     // "webhook" | "slack" | "discord" | "line" | "email"
+    URL      string       `json:"url" firestore:"url"`
+    Secret   string       `json:"secret" firestore:"secret"`
+    Retry    *RetryConfig `json:"retry,omitempty" firestore:"retry,omitempty"`
+    Template string       `json:"template,omitempty" firestore:"template,omitempty"` // Pro: カスタムペイロード
+}
+
+type FilterConfig struct {
+    // 基本フィルタ（Free + Pro）
+    MinScale    int      `json:"min_scale,omitempty" firestore:"minScale,omitempty"`
+    Prefectures []string `json:"prefectures,omitempty" firestore:"prefectures,omitempty"`
+
+    // 詳細フィルタ（Pro のみ）
+    MinDepth     *int     `json:"min_depth,omitempty" firestore:"minDepth,omitempty"`
+    MaxDepth     *int     `json:"max_depth,omitempty" firestore:"maxDepth,omitempty"`
+    MinMagnitude *float64 `json:"min_magnitude,omitempty" firestore:"minMagnitude,omitempty"`
+    TsunamiOnly  bool     `json:"tsunami_only,omitempty" firestore:"tsunamiOnly,omitempty"`
+}
+```
+
+#### プラン検証ロジック
+```go
+// Pro 限定機能の使用チェック
+func validatePlanFeatures(plan string, sub *Subscription) error {
+    if plan == "free" {
+        // 配信先チェック
+        if sub.Delivery.Type != "webhook" {
+            return ErrProFeatureRequired
+        }
+        // カスタムペイロードチェック
+        if sub.Delivery.Template != "" {
+            return ErrProFeatureRequired
+        }
+        // 詳細フィルタチェック
+        if sub.Filter != nil && hasAdvancedFilters(sub.Filter) {
+            return ErrProFeatureRequired
+        }
+    }
+    return nil
+}
+```
+
+---
+
 #### 追加機能
 - Webhook 管理用 Web UI
-- 無料/有料プラン
+- Stripe による課金（Free → Pro アップグレード）
 - ダッシュボード（配信履歴、統計）
+
+---
+
+## Phase 5 詳細実装計画
+
+### 5.1 アーキテクチャ概要
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Go Server (namazu)                   │
+│  ┌─────────────────┐   ┌────────────────────────────┐  │
+│  │   Static Files  │   │      REST API              │  │
+│  │   (embed.FS)    │   │  /api/subscriptions        │  │
+│  │   React SPA     │   │  /api/me                   │  │
+│  │                 │   │  /api/billing/...          │  │
+│  │   /index.html   │   │  /api/webhooks/stripe      │  │
+│  └─────────────────┘   └────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │     Stripe      │
+                    │  (Checkout +    │
+                    │   Webhooks)     │
+                    └─────────────────┘
+```
+
+### 5.2 ディレクトリ構成
+
+```
+namazu/
+├── cmd/namazu/main.go           # エントリーポイント（静的ファイル配信追加）
+├── internal/
+│   ├── api/
+│   │   ├── router.go            # 静的ファイル配信 + SPA フォールバック追加
+│   │   ├── billing_handler.go   # 新規: Stripe API ハンドラー
+│   │   └── billing_handler_test.go
+│   ├── billing/                 # 新規パッケージ
+│   │   ├── stripe.go            # Stripe クライアント
+│   │   ├── customer.go          # 顧客管理
+│   │   ├── subscription.go      # サブスクリプション管理
+│   │   └── webhook.go           # Webhook 署名検証
+│   ├── user/
+│   │   └── user.go              # Stripe フィールド追加
+│   └── config/
+│       └── config.go            # BillingConfig 追加
+├── web/                         # 新規: フロントエンド
+│   ├── src/
+│   │   ├── main.tsx
+│   │   ├── App.tsx
+│   │   ├── routes/              # TanStack Router
+│   │   │   ├── __root.tsx
+│   │   │   ├── index.tsx        # ダッシュボード
+│   │   │   ├── subscriptions.tsx
+│   │   │   ├── billing.tsx
+│   │   │   └── settings.tsx
+│   │   ├── components/
+│   │   │   ├── Layout.tsx
+│   │   │   ├── SubscriptionList.tsx
+│   │   │   ├── SubscriptionForm.tsx
+│   │   │   └── BillingPortal.tsx
+│   │   ├── hooks/
+│   │   │   ├── useAuth.ts       # Firebase Auth
+│   │   │   └── useApi.ts        # REST API クライアント
+│   │   └── lib/
+│   │       ├── api.ts           # fetch ラッパー
+│   │       └── firebase.ts      # Firebase 初期化
+│   ├── index.html
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── tailwind.config.js
+├── static/                      # ビルド出力（embed 対象）
+│   └── (vite build output)
+└── go.mod
+```
+
+### 5.3 User モデル拡張
+
+```go
+// internal/user/user.go に追加
+type User struct {
+    // 既存フィールド...
+
+    // Stripe 連携フィールド（Phase 5 追加）
+    StripeCustomerID     string    `firestore:"stripeCustomerId,omitempty"`
+    SubscriptionID       string    `firestore:"subscriptionId,omitempty"`
+    SubscriptionStatus   string    `firestore:"subscriptionStatus,omitempty"` // "active" | "canceled" | "past_due"
+    SubscriptionEndsAt   time.Time `firestore:"subscriptionEndsAt,omitempty"`
+}
+```
+
+### 5.4 Billing API エンドポイント
+
+```
+# Protected（認証必須）
+POST   /api/billing/create-checkout-session   # Stripe Checkout セッション作成
+GET    /api/billing/portal-session            # カスタマーポータルセッション取得
+GET    /api/billing/status                    # 現在のプラン状態取得
+
+# Stripe Webhook（署名検証）
+POST   /api/webhooks/stripe                   # Stripe イベント受信
+```
+
+### 5.5 Stripe 統合フロー
+
+```
+1. ユーザーが「Pro にアップグレード」クリック
+   ↓
+2. POST /api/billing/create-checkout-session
+   - Stripe Checkout セッション作成
+   - success_url, cancel_url 設定
+   ↓
+3. フロントエンドが Stripe Checkout にリダイレクト
+   ↓
+4. 支払い完了後、Stripe が Webhook 送信
+   POST /api/webhooks/stripe
+   - checkout.session.completed イベント
+   - User.Plan を "pro" に更新
+   - User.StripeCustomerID, SubscriptionID 保存
+   ↓
+5. ユーザーがサービスに戻る（success_url）
+   - Pro 機能が有効化
+```
+
+### 5.6 静的ファイル配信
+
+```go
+// cmd/namazu/main.go
+import "embed"
+
+//go:embed static/*
+var staticFS embed.FS
+
+// internal/api/router.go
+func NewRouterWithStatic(cfg RouterConfig, static embed.FS) http.Handler {
+    mux := http.NewServeMux()
+
+    // API ルート（優先）
+    mux.Handle("/api/", apiHandler)
+    mux.Handle("/health", healthHandler)
+
+    // 静的ファイル + SPA フォールバック
+    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        // ファイルが存在すれば返す
+        // なければ index.html を返す（SPA ルーティング対応）
+    })
+
+    return mux
+}
+```
+
+### 5.7 環境変数
+
+```bash
+# Stripe
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_ID=price_...              # Pro プランの Price ID
+STRIPE_SUCCESS_URL=https://namazu.example.com/billing/success
+STRIPE_CANCEL_URL=https://namazu.example.com/billing
+
+# 既存
+NAMAZU_AUTH_ENABLED=true
+NAMAZU_AUTH_PROJECT_ID=namazu-live
+```
+
+### 5.8 フロントエンドページ構成
+
+| ページ | パス | 説明 |
+|--------|------|------|
+| ダッシュボード | `/` | 概要、最近のイベント |
+| Subscriptions | `/subscriptions` | Webhook 一覧・作成・編集・削除 |
+| Billing | `/billing` | プラン管理、Stripe Checkout |
+| Settings | `/settings` | プロファイル、連携プロバイダー |
+
+### 5.9 実装ステップ
+
+#### Step 1: バックエンド Stripe 統合
+1. `go.mod` に `github.com/stripe/stripe-go/v78` 追加
+2. `internal/billing/` パッケージ作成
+3. `internal/config/config.go` に `BillingConfig` 追加
+4. `internal/user/user.go` に Stripe フィールド追加
+5. `internal/api/billing_handler.go` 作成
+6. テスト作成
+
+#### Step 2: Stripe Webhook
+1. `internal/billing/webhook.go` 署名検証
+2. `checkout.session.completed` ハンドリング
+3. `customer.subscription.updated` ハンドリング
+4. `customer.subscription.deleted` ハンドリング
+
+#### Step 3: フロントエンド初期化
+1. `web/` ディレクトリ作成
+2. Vite + React + TypeScript セットアップ
+3. TanStack Router 設定
+4. Tailwind CSS 設定
+5. Firebase Auth 統合
+
+#### Step 4: フロントエンド実装
+1. Layout コンポーネント（ナビゲーション、認証状態）
+2. Subscriptions ページ（CRUD）
+3. Billing ページ（Stripe Checkout 連携）
+4. Settings ページ（プロファイル表示）
+
+#### Step 5: 静的ファイル配信統合
+1. Vite ビルド設定（出力先: `static/`）
+2. Go embed 設定
+3. SPA フォールバックルーティング
+4. 開発時のプロキシ設定
+
+#### Step 6: E2E テスト
+1. Playwright セットアップ
+2. 認証フロー
+3. Subscription CRUD
+4. Billing フロー（Stripe テストモード）
+
+### 5.10 検証方法
+
+```bash
+# バックエンドテスト
+go test ./internal/billing/... -v
+go test ./internal/api/... -v -run Billing
+
+# フロントエンドビルド
+cd web && npm run build
+
+# 統合テスト
+./scripts/e2e-test.sh
+
+# ローカル開発
+# ターミナル 1: API サーバー
+NAMAZU_API_ADDR=":8080" go run ./cmd/namazu/ --test-mode
+
+# ターミナル 2: Vite 開発サーバー（プロキシ設定済み）
+cd web && npm run dev
+```
+
+### 5.11 依存関係
+
+**Go:**
+```go
+require (
+    github.com/stripe/stripe-go/v78 v78.x.x
+)
+```
+
+**npm (web/package.json):**
+```json
+{
+  "dependencies": {
+    "react": "^18.x",
+    "react-dom": "^18.x",
+    "@tanstack/react-router": "^1.x",
+    "@stripe/react-stripe-js": "^2.x",
+    "@stripe/stripe-js": "^2.x",
+    "firebase": "^10.x"
+  },
+  "devDependencies": {
+    "vite": "^5.x",
+    "typescript": "^5.x",
+    "tailwindcss": "^3.x",
+    "@vitejs/plugin-react": "^4.x"
+  }
+}
+```
 
 ---
 
