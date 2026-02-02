@@ -1,0 +1,19 @@
+services:
+  firebase-emulators:
+    image: fixl/firebase-emulator-suite:14.15.2
+    ports:
+      - "4000:4000"   # Emulator UI
+      - "8080:8080"   # Firestore
+      - "9099:9099"   # Auth
+    environment:
+      FIREBASE_PROJECT_ID: namazu-test
+      AUTH: "true"
+      FIRESTORE: "true"
+    volumes:
+      - ./firebase:/firebase
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

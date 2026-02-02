@@ -5,3 +5,4 @@ config:
   namazu-infra:environment: prod
   namazu-infra:machineType: e2-micro
   namazu-infra:domain: namazu.live
+  namazu-infra:authTenantId: prod-c4rwr

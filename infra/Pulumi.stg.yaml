@@ -5,4 +5,5 @@ config:
   namazu-infra:environment: stg
   namazu-infra:machineType: e2-micro
   namazu-infra:domain: stg.namazu.live
+  namazu-infra:authTenantId: stage-lctnv
 encryptionsalt: v1:PMrKJ7V9tkA=:v1:TGhoNVtYK/H04sew:GePeWbkWq/7YKIGiZkZpTaW4lOfnBA==

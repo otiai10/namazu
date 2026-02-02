@@ -24,6 +24,7 @@ func main() {
 			machineType = "e2-micro"
 		}
 		domain := cfg.Get("domain")
+		authTenantId := cfg.Get("authTenantId")
 
 		project := gcpCfg.Require("project")
 		region := gcpCfg.Get("region")
@@ -277,6 +278,7 @@ API_ADDR=$(get_metadata "namazu-api-addr")
 STORE_PROJECT_ID=$(get_metadata "namazu-store-project-id")
 STORE_DATABASE=$(get_metadata "namazu-store-database")
 DOMAIN=$(get_metadata "namazu-domain")
+AUTH_TENANT_ID=$(get_metadata "namazu-auth-tenant-id")
 
 # Configure docker credential helper for Artifact Registry
 docker-credential-gcr configure-docker --registries=%s-docker.pkg.dev
@@ -303,6 +305,7 @@ docker run -d \
   -e NAMAZU_API_ADDR=${API_ADDR} \
   -e NAMAZU_STORE_PROJECT_ID=${STORE_PROJECT_ID} \
   -e NAMAZU_STORE_DATABASE=${STORE_DATABASE} \
+  -e NAMAZU_AUTH_TENANT_ID=${AUTH_TENANT_ID} \
   ${IMAGE}
 
 # Run Caddy for HTTPS reverse proxy (only if domain is set)
@@ -357,6 +360,7 @@ fi
 				"namazu-store-project-id": pulumi.String(project),
 				"namazu-store-database":   pulumi.String(dbName),
 				"namazu-domain":           pulumi.String(domain),
+				"namazu-auth-tenant-id":   pulumi.String(authTenantId),
 			},
 			MetadataStartupScript:  startupScript,
 			AllowStoppingForUpdate: pulumi.Bool(true),

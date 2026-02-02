@@ -28,15 +28,20 @@ NC='\033[0m' # No Color
 # Configuration
 API_PORT=18080
 WEBHOOK_PORT=19090
+EMULATOR_UI_PORT=4000
+FIRESTORE_PORT=8080
+AUTH_PORT=9099
 NAMAZU_PID=""
 WEBHOOK_PID=""
-EMULATOR_PID=""
 
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
     [ -n "$NAMAZU_PID" ] && kill $NAMAZU_PID 2>/dev/null || true
     [ -n "$WEBHOOK_PID" ] && kill $WEBHOOK_PID 2>/dev/null || true
-    [ -n "$EMULATOR_PID" ] && kill $EMULATOR_PID 2>/dev/null || true
+    # Stop Firebase Emulator (docker compose)
+    if [ "$USE_EMULATOR" = true ]; then
+        docker compose down 2>/dev/null || true
+    fi
     # Kill any remaining processes on our ports
     lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
     lsof -ti:$WEBHOOK_PORT | xargs kill 2>/dev/null || true
@@ -73,11 +78,11 @@ if [ "$MODE" = "emulator" ]; then
 elif [ "$MODE" = "real" ]; then
     USE_EMULATOR=false
 elif [ "$MODE" = "auto" ]; then
-    # Check if firebase CLI is available
-    if command -v firebase &> /dev/null; then
+    # Check if docker compose is available
+    if command -v docker &> /dev/null && docker compose version &> /dev/null; then
         USE_EMULATOR=true
     else
-        log_warn "Firebase CLI not found, using real Firestore with --test-mode"
+        log_warn "Docker Compose not found, using real Firestore with --test-mode"
         USE_EMULATOR=false
     fi
 fi
@@ -88,21 +93,36 @@ echo "========================================"
 echo "Mode: $([ "$USE_EMULATOR" = true ] && echo "Emulator" || echo "Real Firestore")"
 echo ""
 
-# 1. Start Firestore Emulator (if using emulator mode)
+# 1. Start Firebase Emulators via Docker Compose (if using emulator mode)
 if [ "$USE_EMULATOR" = true ]; then
-    log_info "Starting Firestore Emulator..."
-    firebase emulators:start --only firestore > /tmp/emulator-e2e.log 2>&1 &
-    EMULATOR_PID=$!
+    log_info "Starting Firebase Emulators via Docker Compose..."
+    docker compose up -d firebase-emulators > /tmp/emulator-e2e.log 2>&1
 
-    # Wait for emulator to be ready
-    sleep 5
-    if ! wait_for_port 8080 30; then
-        log_error "Firestore Emulator failed to start"
-        cat /tmp/emulator-e2e.log
+    # Wait for all emulator ports to be ready
+    log_info "Waiting for Emulator UI (port $EMULATOR_UI_PORT)..."
+    if ! wait_for_port $EMULATOR_UI_PORT 60; then
+        log_error "Emulator UI failed to start"
+        docker compose logs firebase-emulators
         exit 1
     fi
-    log_info "Firestore Emulator started"
-    export FIRESTORE_EMULATOR_HOST="localhost:8080"
+
+    log_info "Waiting for Firestore (port $FIRESTORE_PORT)..."
+    if ! wait_for_port $FIRESTORE_PORT 30; then
+        log_error "Firestore Emulator failed to start"
+        docker compose logs firebase-emulators
+        exit 1
+    fi
+
+    log_info "Waiting for Auth (port $AUTH_PORT)..."
+    if ! wait_for_port $AUTH_PORT 30; then
+        log_error "Auth Emulator failed to start"
+        docker compose logs firebase-emulators
+        exit 1
+    fi
+
+    log_info "Firebase Emulators started"
+    export FIREBASE_AUTH_EMULATOR_HOST="localhost:$AUTH_PORT"
+    export FIRESTORE_EMULATOR_HOST="localhost:$FIRESTORE_PORT"
 fi
 
 # 2. Start dummy webhook receiver
@@ -121,7 +141,8 @@ log_info "Webhook receiver started"
 # 3. Start namazu server
 log_info "Starting namazu server on port $API_PORT..."
 if [ "$USE_EMULATOR" = true ]; then
-    FIRESTORE_EMULATOR_HOST="localhost:8080" \
+    FIREBASE_AUTH_EMULATOR_HOST="localhost:$AUTH_PORT" \
+    FIRESTORE_EMULATOR_HOST="localhost:$FIRESTORE_PORT" \
     NAMAZU_SOURCE_ENDPOINT=wss://api-realtime-sandbox.p2pquake.net/v2/ws \
     NAMAZU_STORE_PROJECT_ID=namazu-test \
     NAMAZU_STORE_DATABASE="(default)" \

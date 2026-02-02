@@ -1,10 +1,13 @@
 #!/bin/bash
-# Test authentication with Firebase Identity Platform
+# Test authentication with Firebase Auth Emulator or Production Identity Platform
 # Usage: ./scripts/test-auth.sh
 #
-# Requires either:
-#   1. .env.test file in project root
-#   2. FIREBASE_API_KEY environment variable
+# Emulator mode (default):
+#   docker compose up -d firebase-emulators
+#   ./scripts/test-auth.sh
+#
+# Production mode:
+#   FIREBASE_API_KEY=xxx ./scripts/test-auth.sh
 
 set -e
 
@@ -19,19 +22,57 @@ if [ -f "$PROJECT_ROOT/.env.test" ]; then
 fi
 
 # Configuration
-API_KEY="${FIREBASE_API_KEY:-}"
-TENANT_ID="${NAMAZU_AUTH_TENANT_ID:-test-hwuh8}"
-EMAIL="${TEST_EMAIL:-otiai10+namazutest001@gmail.com}"
-PASSWORD="${TEST_PASSWORD:-testtesttest}"
+AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
+API_KEY="${FIREBASE_API_KEY:-fake-api-key}"
+TENANT_ID="${NAMAZU_AUTH_TENANT_ID:-localdev}"
+EMAIL="${TEST_EMAIL:-test@example.com}"
+PASSWORD="${TEST_PASSWORD:-testpassword123}"
 API_BASE="${API_BASE:-http://localhost:8080}"
 
-if [ -z "$API_KEY" ]; then
-    echo "Error: FIREBASE_API_KEY is required"
+# Determine if using emulator
+USE_EMULATOR=true
+AUTH_BASE="http://${AUTH_EMULATOR_HOST}"
+
+# Check if emulator is running
+if ! curl -s "${AUTH_BASE}/" > /dev/null 2>&1; then
+    echo "Auth Emulator not running at ${AUTH_EMULATOR_HOST}"
+    if [ -z "$FIREBASE_API_KEY" ] || [ "$FIREBASE_API_KEY" == "fake-api-key" ]; then
+        echo ""
+        echo "Options:"
+        echo "  1. Start emulator: docker compose up -d firebase-emulators"
+        echo "  2. Use production: FIREBASE_API_KEY=xxx ./scripts/test-auth.sh"
+        exit 1
+    fi
+    USE_EMULATOR=false
+    AUTH_BASE="https://identitytoolkit.googleapis.com"
+    echo "Using production Identity Platform"
+fi
+
+if [ "$USE_EMULATOR" = true ]; then
+    echo "=== Using Firebase Auth Emulator ==="
+    echo "Emulator: ${AUTH_EMULATOR_HOST}"
     echo ""
-    echo "Options:"
-    echo "  1. Create .env.test with FIREBASE_API_KEY=xxx"
-    echo "  2. Run: FIREBASE_API_KEY=xxx ./scripts/test-auth.sh"
-    exit 1
+
+    echo "=== Step 0: Create test user in Emulator ==="
+    # Create user (ignore error if already exists)
+    SIGNUP_RESPONSE=$(curl -s -X POST \
+        "${AUTH_BASE}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"email\": \"${EMAIL}\",
+            \"password\": \"${PASSWORD}\",
+            \"returnSecureToken\": true,
+            \"tenantId\": \"${TENANT_ID}\"
+        }" 2>/dev/null || echo '{}')
+
+    if echo "$SIGNUP_RESPONSE" | jq -e '.idToken' > /dev/null 2>&1; then
+        echo "Created test user: $EMAIL"
+    else
+        echo "User already exists or created: $EMAIL"
+    fi
+    echo ""
+else
+    echo "=== Using Production Identity Platform ==="
 fi
 
 echo "=== Step 1: Sign in with Email/Password ==="
@@ -40,7 +81,7 @@ echo "Tenant: $TENANT_ID"
 
 # Sign in to get ID token (with tenant)
 SIGNIN_RESPONSE=$(curl -s -X POST \
-    "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}" \
+    "${AUTH_BASE}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
         \"email\": \"${EMAIL}\",
