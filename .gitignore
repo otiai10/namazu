@@ -35,3 +35,9 @@ knowledge/plans
 node_modules/
 
 .pnpm-store/
+
+# Frontend build output
+cmd/namazu/static/
+
+# Pulumi binary
+infra/infra
