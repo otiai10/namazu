@@ -136,15 +136,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: restart-instance
     steps:
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
-
-      - name: Setup gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-
       - name: Set environment
         id: env
         run: |
@@ -154,31 +145,19 @@ jobs:
             echo "environment=stg" >> $GITHUB_OUTPUT
           fi
 
-      - name: Get instance IP
-        id: ip
-        run: |
-          INSTANCE_NAME="namazu-${{ steps.env.outputs.environment }}-instance"
-          ZONE="${{ env.GCP_REGION }}-b"
-
-          # Wait for instance to be running
-          for i in {1..30}; do
-            STATUS=$(gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --format='get(status)')
-            if [ "$STATUS" = "RUNNING" ]; then
-              break
-            fi
-            echo "Waiting for instance to be running... ($i/30)"
-            sleep 10
-          done
-
-          IP=$(gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-          echo "ip=$IP" >> $GITHUB_OUTPUT
-
       - name: Wait for health check
         run: |
-          IP="${{ steps.ip.outputs.ip }}"
+          ENV="${{ steps.env.outputs.environment }}"
+          if [ "$ENV" = "prod" ]; then
+            DOMAIN="namazu.live"
+          else
+            DOMAIN="${ENV}.namazu.live"
+          fi
+
+          echo "Checking https://${DOMAIN}/health"
 
           for i in {1..30}; do
-            if curl -sf "http://$IP:8080/health" > /dev/null 2>&1; then
+            if curl -sf "https://${DOMAIN}/health" > /dev/null 2>&1; then
               echo "Health check passed!"
               exit 0
             fi
