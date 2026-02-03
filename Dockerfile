@@ -32,6 +32,9 @@ RUN pnpm build
 # =============================================================================
 FROM golang:1.24-alpine AS go-builder
 
+# Build argument for commit hash (passed from CI)
+ARG COMMIT_HASH=unknown
+
 # Install git and ca-certificates for Go modules and HTTPS
 RUN apk add --no-cache git ca-certificates tzdata
 
@@ -52,8 +55,9 @@ COPY --from=frontend-builder /app/cmd/namazu/static ./cmd/namazu/static
 # Build the binary
 # CGO_ENABLED=0 for static binary
 # -ldflags="-s -w" to strip debug info and reduce size
+# -X to embed commit hash for version tracking
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X github.com/otiai10/namazu/internal/version.CommitHash=${COMMIT_HASH}" \
     -o /app/namazu \
     ./cmd/namazu
 

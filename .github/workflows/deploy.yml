@@ -79,6 +79,8 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            COMMIT_HASH=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -148,6 +150,8 @@ jobs:
       - name: Wait for health check
         run: |
           ENV="${{ steps.env.outputs.environment }}"
+          EXPECTED_HASH="${{ github.sha }}"
+
           if [ "$ENV" = "prod" ]; then
             DOMAIN="namazu.live"
           else
@@ -155,15 +159,24 @@ jobs:
           fi
 
           echo "Checking https://${DOMAIN}/health"
+          echo "Expected hash: ${EXPECTED_HASH}"
 
           for i in {1..30}; do
-            if curl -sf "https://${DOMAIN}/health" > /dev/null 2>&1; then
-              echo "Health check passed!"
-              exit 0
+            RESPONSE=$(curl -sf "https://${DOMAIN}/health" 2>/dev/null || echo "")
+            if [ -n "$RESPONSE" ]; then
+              ACTUAL_HASH=$(echo "$RESPONSE" | jq -r '.hash // empty')
+              echo "Response: $RESPONSE"
+
+              if [ "$ACTUAL_HASH" = "$EXPECTED_HASH" ]; then
+                echo "Health check passed! Deployed version verified."
+                exit 0
+              elif [ -n "$ACTUAL_HASH" ] && [ "$ACTUAL_HASH" != "unknown" ]; then
+                echo "Service is up but running old version (hash: $ACTUAL_HASH)"
+              fi
             fi
-            echo "Waiting for service to be ready... ($i/30)"
+            echo "Waiting for new version to be ready... ($i/30)"
             sleep 10
           done
 
-          echo "Health check failed after 5 minutes"
+          echo "Health check failed: new version not deployed after 5 minutes"
           exit 1
