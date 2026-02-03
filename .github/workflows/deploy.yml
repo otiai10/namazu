@@ -83,52 +83,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ==========================================================================
-  # Deploy Infrastructure with Pulumi
+  # Deploy Infrastructure with Pulumi (disabled)
   # ==========================================================================
-  deploy-infra:
-    name: Deploy Infrastructure
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    defaults:
-      run:
-        working-directory: infra
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set environment
-        id: env
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          else
-            echo "environment=stg" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: infra/go.sum
-
-      - name: Install Pulumi
-        uses: pulumi/actions@v5
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
-
-      - name: Pulumi Up
-        uses: pulumi/actions@v5
-        with:
-          command: up
-          stack-name: ${{ steps.env.outputs.environment }}
-          work-dir: infra
-        env:
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+  # Infrastructure is managed by Pulumi but doesn't need to run on every deploy.
+  # Run manually when infrastructure changes are needed:
+  #   cd infra && pulumi up --stack stg
+  # Requires: PULUMI_ACCESS_TOKEN, GCP credentials
 
   # ==========================================================================
   # Restart Instance to Pull New Image
@@ -136,7 +96,7 @@ jobs:
   restart-instance:
     name: Restart Instance
     runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-infra]
+    needs: build-and-push
     steps:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
