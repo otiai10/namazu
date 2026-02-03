@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayanel/namazu/internal/store"
+	"github.com/otiai10/namazu/internal/store"
 )
 
 // TestFirestoreRepository_Integration tests the FirestoreRepository against a real Firestore instance.

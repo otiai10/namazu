@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ayanel/namazu/internal/auth"
-	"github.com/ayanel/namazu/internal/billing"
-	"github.com/ayanel/namazu/internal/config"
-	"github.com/ayanel/namazu/internal/quota"
-	"github.com/ayanel/namazu/internal/store"
-	"github.com/ayanel/namazu/internal/subscription"
-	"github.com/ayanel/namazu/internal/user"
+	"github.com/otiai10/namazu/internal/auth"
+	"github.com/otiai10/namazu/internal/billing"
+	"github.com/otiai10/namazu/internal/config"
+	"github.com/otiai10/namazu/internal/quota"
+	"github.com/otiai10/namazu/internal/store"
+	"github.com/otiai10/namazu/internal/subscription"
+	"github.com/otiai10/namazu/internal/user"
 )
 
 // RouterConfig holds dependencies for the router

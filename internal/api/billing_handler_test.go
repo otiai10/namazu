@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayanel/namazu/internal/auth"
-	"github.com/ayanel/namazu/internal/billing"
-	"github.com/ayanel/namazu/internal/config"
-	"github.com/ayanel/namazu/internal/user"
+	"github.com/otiai10/namazu/internal/auth"
+	"github.com/otiai10/namazu/internal/billing"
+	"github.com/otiai10/namazu/internal/config"
+	"github.com/otiai10/namazu/internal/user"
 )
 
 // billingMockUserRepo extends mockUserRepo with billing-specific methods

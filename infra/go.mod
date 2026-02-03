@@ -1,4 +1,4 @@
-module github.com/ayanel/namazu/infra
+module github.com/otiai10/namazu/infra
 
 go 1.24
 

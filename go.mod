@@ -1,4 +1,4 @@
-module github.com/ayanel/namazu
+module github.com/otiai10/namazu
 
 go 1.24.0
 

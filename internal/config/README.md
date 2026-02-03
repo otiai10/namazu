@@ -9,7 +9,7 @@ package main
 
 import (
     "log"
-    "github.com/ayanel/namazu/internal/config"
+    "github.com/otiai10/namazu/internal/config"
 )
 
 func main() {

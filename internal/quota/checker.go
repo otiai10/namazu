@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ayanel/namazu/internal/subscription"
+	"github.com/otiai10/namazu/internal/subscription"
 )
 
 // QuotaChecker checks if operations are allowed within quota

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ayanel/namazu/internal/user"
+	"github.com/otiai10/namazu/internal/user"
 	"github.com/stripe/stripe-go/v78"
 	"github.com/stripe/stripe-go/v78/customer"
 )

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayanel/namazu/internal/auth"
-	"github.com/ayanel/namazu/internal/user"
+	"github.com/otiai10/namazu/internal/auth"
+	"github.com/otiai10/namazu/internal/user"
 )
 
 // mockUserRepo implements user.Repository for testing

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ayanel/namazu/internal/source"
+	"github.com/otiai10/namazu/internal/source"
 	"github.com/gorilla/websocket"
 )
 

@@ -1,7 +1,7 @@
 package quota
 
 import (
-	"github.com/ayanel/namazu/internal/user"
+	"github.com/otiai10/namazu/internal/user"
 )
 
 // PlanLimits defines limits per plan

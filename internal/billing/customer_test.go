@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ayanel/namazu/internal/user"
+	"github.com/otiai10/namazu/internal/user"
 )
 
 func TestBuildCustomerParams(t *testing.T) {

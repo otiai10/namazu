@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayanel/namazu/internal/source"
+	"github.com/otiai10/namazu/internal/source"
 )
 
 // Test ScaleToSeverity function

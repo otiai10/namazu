@@ -3,8 +3,8 @@ package subscription
 import (
 	"strings"
 
-	"github.com/ayanel/namazu/internal/source"
-	"github.com/ayanel/namazu/internal/source/p2pquake"
+	"github.com/otiai10/namazu/internal/source"
+	"github.com/otiai10/namazu/internal/source/p2pquake"
 )
 
 // Matches checks if an event matches the filter criteria.
