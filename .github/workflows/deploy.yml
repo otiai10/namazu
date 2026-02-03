@@ -17,7 +17,14 @@ on:
 env:
   GO_VERSION: "1.24"
   GCP_REGION: us-west1
+  GCP_PROJECT_ID: namazu-live
+  GCP_WIF_PROVIDER: projects/835259465629/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  GCP_SERVICE_ACCOUNT: github-actions@namazu-live.iam.gserviceaccount.com
   IMAGE_NAME: namazu
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   # ==========================================================================
@@ -44,7 +51,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
@@ -60,7 +68,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/namazu/${{ env.IMAGE_NAME }}
+          images: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/namazu/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=
             type=raw,value=latest
@@ -110,7 +118,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Pulumi Up
         uses: pulumi/actions@v5
@@ -132,7 +141,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
@@ -169,7 +179,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
