@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otiai10/namazu/internal/source"
 	"github.com/gorilla/websocket"
+	"github.com/otiai10/namazu/internal/source"
 )
 
 // Test NewClient creates client correctly

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/otiai10/namazu/internal/source"
 	"github.com/gorilla/websocket"
+	"github.com/otiai10/namazu/internal/source"
 )
 
 const (
