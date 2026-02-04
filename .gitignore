@@ -30,6 +30,7 @@ service-account.json
 # Agent
 .claude/settings.local.json
 knowledge/plans
+.playwright-mcp
 
 # Node.js
 node_modules/
