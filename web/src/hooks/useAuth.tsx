@@ -22,6 +22,7 @@ export interface AuthContext {
   signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
   getIdToken: () => Promise<string | null>
+  waitUntilReady: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContext | null>(null)
@@ -37,6 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
+  // Stable promise that resolves when auth state is first determined.
+  // Created once via useState initializer (StrictMode safe).
+  const [authReadyPromise] = useState(() => {
+    if (!isFirebaseConfigured || !auth) return Promise.resolve()
+    return auth.authStateReady()
+  })
+
+  const waitUntilReady = useCallback(() => authReadyPromise, [authReadyPromise])
+
   useEffect(() => {
     // Demo mode: Firebase not configured
     if (!isFirebaseConfigured || !auth) {
@@ -46,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Normal mode: Use Firebase Auth
+    // Subscribe to auth state changes
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user)
       setIsLoading(false)
@@ -79,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       await firebaseSignOut(auth)
+      window.location.href = '/login'
     } catch (error) {
       console.error('Failed to sign out:', error)
       throw error
@@ -108,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithGoogle,
     signOut,
     getIdToken,
+    waitUntilReady,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
