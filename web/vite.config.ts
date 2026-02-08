@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import path from 'path'
 
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:9898'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -24,11 +26,11 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:9898',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:9898',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },

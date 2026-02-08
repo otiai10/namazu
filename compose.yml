@@ -6,7 +6,7 @@ services:
     image: fixl/firebase-emulator-suite:14.15.2
     ports:
       - "4000:4000"   # Emulator UI
-      - "8085:8080"   # Firestore (ホスト8085 → コンテナ8080)
+      - "8081:8081"   # Firestore (ホスト8081 → コンテナ8081)
       - "9099:9099"   # Auth
     environment:
       FIREBASE_PROJECT_ID: namazu-test
@@ -39,7 +39,7 @@ services:
       NAMAZU_AUTH_PROJECT_ID: namazu-test
       NAMAZU_AUTH_TENANT_ID: localdev
       FIREBASE_AUTH_EMULATOR_HOST: firebase-emulators:9099
-      FIRESTORE_EMULATOR_HOST: firebase-emulators:8080
+      FIRESTORE_EMULATOR_HOST: firebase-emulators:8081
     volumes:
       - .:/app
       - go-mod-cache:/go/pkg/mod
@@ -63,7 +63,8 @@ services:
       VITE_USE_AUTH_EMULATOR: "true"
       VITE_AUTH_EMULATOR_HOST: http://localhost:9099
       VITE_USE_POLLING: "true"
-      VITE_FIRESTORE_EMULATOR_HOST: "localhost:8085"
+      VITE_FIRESTORE_EMULATOR_HOST: "localhost:8081"
+      VITE_API_PROXY_TARGET: http://api:9898
     volumes:
       - ./web:/app
       - web-node-modules:/app/node_modules
