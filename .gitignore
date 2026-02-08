@@ -22,6 +22,10 @@ coverage.out
 .env.test
 .env.production
 
+# Compose environment (local development)
+# .env.compose.example はコミットする（テンプレート）
+.env.compose
+
 # GCP credentials (never commit!)
 service-account.json
 *-serviceaccount.json
