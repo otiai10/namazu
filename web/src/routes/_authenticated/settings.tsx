@@ -2,22 +2,21 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { api, type UserProfile } from '@/lib/api'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 
-export const Route = createFileRoute('/settings')({
+export const Route = createFileRoute('/_authenticated/settings')({
   component: SettingsPage,
 })
 
 function SettingsPage() {
-  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
+  const { user } = useAuth()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadProfile()
-    }
-  }, [isAuthenticated])
+    loadProfile()
+  }, [])
 
   async function loadProfile() {
     try {
@@ -35,26 +34,6 @@ function SettingsPage() {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  if (authLoading) {
-    return <LoadingSpinner />
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="card text-center py-12">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          ログインが必要です
-        </h2>
-        <p className="text-gray-600 mb-6">
-          設定を確認するにはログインしてください。
-        </p>
-        <Link to="/" className="btn btn-primary">
-          ホームへ戻る
-        </Link>
-      </div>
-    )
   }
 
   return (
@@ -327,10 +306,3 @@ function formatDate(dateString: string): string {
   })
 }
 
-function LoadingSpinner() {
-  return (
-    <div className="flex justify-center py-12">
-      <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-    </div>
-  )
-}

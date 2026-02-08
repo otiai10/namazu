@@ -1,14 +1,12 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useAuth } from '@/hooks/useAuth'
 import { useState, useEffect, useCallback } from 'react'
 import { api, BillingStatus } from '@/lib/api'
 
-export const Route = createFileRoute('/billing')({
+export const Route = createFileRoute('/_authenticated/billing')({
   component: BillingPage,
 })
 
 function BillingPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null)
   const [isLoadingStatus, setIsLoadingStatus] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -29,10 +27,8 @@ function BillingPage() {
   }, [])
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchBillingStatus()
-    }
-  }, [isAuthenticated, fetchBillingStatus])
+    fetchBillingStatus()
+  }, [fetchBillingStatus])
 
   const handleUpgrade = async () => {
     setIsProcessing(true)
@@ -61,26 +57,6 @@ function BillingPage() {
       setError('カスタマーポータルへのアクセスに失敗しました。')
       setIsProcessing(false)
     }
-  }
-
-  if (authLoading) {
-    return <LoadingSpinner />
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="card text-center py-12">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          ログインが必要です
-        </h2>
-        <p className="text-gray-600 mb-6">
-          課金設定を確認するにはログインしてください。
-        </p>
-        <Link to="/" className="btn btn-primary">
-          ホームへ戻る
-        </Link>
-      </div>
-    )
   }
 
   const isPro = billingStatus?.plan === 'pro' && billingStatus?.hasActiveSubscription
@@ -360,14 +336,6 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
     <div className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
       <h4 className="font-medium text-gray-900">{question}</h4>
       <p className="text-sm text-gray-600 mt-1">{answer}</p>
-    </div>
-  )
-}
-
-function LoadingSpinner() {
-  return (
-    <div className="flex justify-center py-12">
-      <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
     </div>
   )
 }
