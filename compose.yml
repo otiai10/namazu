@@ -63,6 +63,7 @@ services:
       VITE_USE_AUTH_EMULATOR: "true"
       VITE_AUTH_EMULATOR_HOST: http://localhost:9099
       VITE_USE_POLLING: "true"
+      VITE_FIRESTORE_EMULATOR_HOST: "localhost:8085"
     volumes:
       - ./web:/app
       - web-node-modules:/app/node_modules
