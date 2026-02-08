@@ -745,7 +745,7 @@ func TestLoadFromEnv(t *testing.T) {
 	os.Setenv("NAMAZU_SOURCE_TYPE", "p2pquake")
 	os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://api-realtime-sandbox.p2pquake.net/v2/ws")
 	os.Setenv("NAMAZU_STORE_PROJECT_ID", "test-project")
-	os.Setenv("NAMAZU_API_ADDR", ":8080")
+	os.Setenv("NAMAZU_API_ADDR", ":9898")
 	defer os.Unsetenv("NAMAZU_SOURCE_TYPE")
 	defer os.Unsetenv("NAMAZU_SOURCE_ENDPOINT")
 	defer os.Unsetenv("NAMAZU_STORE_PROJECT_ID")
@@ -788,10 +788,10 @@ func TestLoadFromEnv(t *testing.T) {
 		t.Fatal("API should not be nil")
 	}
 
-	if cfg.API.Addr != ":8080" {
+	if cfg.API.Addr != ":9898" {
 		t.Errorf("API.Addr = %q, want %q",
 			cfg.API.Addr,
-			":8080")
+			":9898")
 	}
 }
 
@@ -799,7 +799,7 @@ func TestLoad_EmptyPathUsesEnv(t *testing.T) {
 	// Test that Load("") delegates to LoadFromEnv
 
 	os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://test.example.com/ws")
-	os.Setenv("NAMAZU_API_ADDR", ":8080") // Required: either subscriptions or API
+	os.Setenv("NAMAZU_API_ADDR", ":9898") // Required: either subscriptions or API
 	defer os.Unsetenv("NAMAZU_SOURCE_ENDPOINT")
 	defer os.Unsetenv("NAMAZU_API_ADDR")
 
@@ -824,7 +824,7 @@ func TestLoadFromEnv_DefaultSourceType(t *testing.T) {
 
 	// Only set endpoint, not type
 	os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://test.example.com/ws")
-	os.Setenv("NAMAZU_API_ADDR", ":8080") // Required: either subscriptions or API
+	os.Setenv("NAMAZU_API_ADDR", ":9898") // Required: either subscriptions or API
 	defer os.Unsetenv("NAMAZU_SOURCE_ENDPOINT")
 	defer os.Unsetenv("NAMAZU_API_ADDR")
 
@@ -854,7 +854,7 @@ subscriptions:
       secret: secret1
 
 api:
-  addr: ":8080"
+  addr: ":9898"
 `
 
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
@@ -870,8 +870,8 @@ api:
 		t.Fatal("API config should not be nil")
 	}
 
-	if cfg.API.Addr != ":8080" {
-		t.Errorf("API.Addr = %q, want %q", cfg.API.Addr, ":8080")
+	if cfg.API.Addr != ":9898" {
+		t.Errorf("API.Addr = %q, want %q", cfg.API.Addr, ":9898")
 	}
 }
 
@@ -891,7 +891,7 @@ subscriptions:
       secret: secret1
 
 api:
-  addr: ":8080"
+  addr: ":9898"
 `
 
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
@@ -925,7 +925,7 @@ func TestValidate_NoSubscriptionsWithAPI(t *testing.T) {
 		},
 		Subscriptions: []SubscriptionConfig{},
 		API: &APIConfig{
-			Addr: ":8080",
+			Addr: ":9898",
 		},
 	}
 
@@ -961,14 +961,14 @@ func TestAPIConfig_Validate(t *testing.T) {
 		{
 			name: "valid api config",
 			config: APIConfig{
-				Addr: ":8080",
+				Addr: ":9898",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid api config with host",
 			config: APIConfig{
-				Addr: "0.0.0.0:8080",
+				Addr: "0.0.0.0:9898",
 			},
 			wantErr: false,
 		},
@@ -1335,7 +1335,7 @@ func TestSecurityConfig_EnvironmentOverrides(t *testing.T) {
 	t.Run("applies security environment variables", func(t *testing.T) {
 		os.Setenv("NAMAZU_SOURCE_TYPE", "p2pquake")
 		os.Setenv("NAMAZU_SOURCE_ENDPOINT", "wss://test.example.com/ws")
-		os.Setenv("NAMAZU_API_ADDR", ":8080")
+		os.Setenv("NAMAZU_API_ADDR", ":9898")
 		os.Setenv("NAMAZU_ALLOW_LOCAL_WEBHOOKS", "true")
 		os.Setenv("NAMAZU_CORS_ALLOWED_ORIGINS", "https://example.com,https://app.example.com")
 		os.Setenv("NAMAZU_RATE_LIMIT_ENABLED", "true")

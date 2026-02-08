@@ -205,7 +205,7 @@ func main() {
 			Allows: compute.FirewallAllowArray{
 				&compute.FirewallAllowArgs{
 					Protocol: pulumi.String("tcp"),
-					Ports:    pulumi.StringArray{pulumi.String("8080")},
+					Ports:    pulumi.StringArray{pulumi.String("9898")},
 				},
 			},
 			// GCP health check ranges
@@ -317,7 +317,7 @@ if [ -n "${DOMAIN}" ]; then
     -p 80:80 \
     -p 443:443 \
     -v /home/chronos/caddy_data:/data \
-    caddy caddy reverse-proxy --from ${DOMAIN} --to namazu:8080
+    caddy caddy reverse-proxy --from ${DOMAIN} --to namazu:9898
 fi
 `, region)
 
@@ -356,7 +356,7 @@ fi
 				"namazu-image":            pulumi.Sprintf("%s-docker.pkg.dev/%s/namazu/namazu:latest", region, project),
 				"namazu-source-type":      pulumi.String("p2pquake"),
 				"namazu-source-endpoint":  pulumi.String(sourceEndpoint),
-				"namazu-api-addr":         pulumi.String(":8080"),
+				"namazu-api-addr":         pulumi.String(":9898"),
 				"namazu-store-project-id": pulumi.String(project),
 				"namazu-store-database":   pulumi.String(dbName),
 				"namazu-domain":           pulumi.String(domain),

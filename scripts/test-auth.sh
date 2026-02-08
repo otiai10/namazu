@@ -26,7 +26,7 @@ API_KEY="${FIREBASE_API_KEY:-fake-api-key}"
 TENANT_ID="${NAMAZU_AUTH_TENANT_ID:-localdev}"
 EMAIL="${TEST_EMAIL:-test@example.com}"
 PASSWORD="${TEST_PASSWORD:-testpassword123}"
-API_BASE="${API_BASE:-http://localhost:8080}"
+API_BASE="${API_BASE:-http://localhost:9898}"
 
 # Determine if using emulator
 USE_EMULATOR=true

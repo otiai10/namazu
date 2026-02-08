@@ -100,7 +100,7 @@ docker run -d \
   -p 80:80 \
   -p 443:443 \
   -v /home/chronos/caddy_data:/data \
-  caddy caddy reverse-proxy --from ${DOMAIN} --to namazu:8080
+  caddy caddy reverse-proxy --from ${DOMAIN} --to namazu:9898
 ```
 
 ## IAM ロール

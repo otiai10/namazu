@@ -84,7 +84,7 @@ pulumi stack output
 |------|-----|------|
 | NAMAZU_SOURCE_TYPE | p2pquake | p2pquake |
 | NAMAZU_SOURCE_ENDPOINT | wss://api-realtime-sandbox.p2pquake.net/v2/ws | wss://api.p2pquake.net/v2/ws |
-| NAMAZU_API_ADDR | :8080 | :8080 |
+| NAMAZU_API_ADDR | :9898 | :9898 |
 | NAMAZU_STORE_PROJECT_ID | (GCP Project ID) | (GCP Project ID) |
 
 追加の環境変数（Firebase Auth, Stripe 等）は、インスタンスにSSHして設定:
@@ -99,10 +99,10 @@ docker rm namazu
 docker run -d \
   --name namazu \
   --restart=always \
-  -p 8080:8080 \
+  -p 9898:9898 \
   -e NAMAZU_SOURCE_TYPE=p2pquake \
   -e NAMAZU_SOURCE_ENDPOINT=wss://api.p2pquake.net/v2/ws \
-  -e NAMAZU_API_ADDR=:8080 \
+  -e NAMAZU_API_ADDR=:9898 \
   -e NAMAZU_STORE_PROJECT_ID=YOUR_PROJECT \
   -e NAMAZU_AUTH_ENABLED=true \
   -e NAMAZU_AUTH_PROJECT_ID=YOUR_PROJECT \

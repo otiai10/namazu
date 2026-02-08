@@ -11,14 +11,14 @@ func TestNewServer(t *testing.T) {
 	subRepo := newMockSubscriptionRepo()
 	eventRepo := newMockEventRepo()
 
-	server := NewServer(":8080", subRepo, eventRepo)
+	server := NewServer(":9898", subRepo, eventRepo)
 
 	if server == nil {
 		t.Fatal("expected server to be created")
 	}
 
-	if server.Addr() != ":8080" {
-		t.Errorf("expected addr :8080, got %s", server.Addr())
+	if server.Addr() != ":9898" {
+		t.Errorf("expected addr :9898, got %s", server.Addr())
 	}
 
 	if server.httpServer == nil {
