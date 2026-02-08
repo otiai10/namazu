@@ -29,12 +29,12 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     ports:
-      - "8080:8080"
+      - "9898:9898"
     environment:
       NAMAZU_SOURCE_TYPE: p2pquake
       NAMAZU_SOURCE_ENDPOINT: wss://api-realtime-sandbox.p2pquake.net/v2/ws
       NAMAZU_STORE_PROJECT_ID: namazu-test
-      NAMAZU_API_ADDR: ":8080"
+      NAMAZU_API_ADDR: ":9898"
       NAMAZU_AUTH_ENABLED: "true"
       NAMAZU_AUTH_PROJECT_ID: namazu-test
       NAMAZU_AUTH_TENANT_ID: localdev
@@ -62,6 +62,7 @@ services:
       VITE_FIREBASE_TENANT_ID: localdev
       VITE_USE_AUTH_EMULATOR: "true"
       VITE_AUTH_EMULATOR_HOST: http://localhost:9099
+      VITE_USE_POLLING: "true"
     volumes:
       - ./web:/app
       - web-node-modules:/app/node_modules
@@ -86,7 +87,7 @@ services:
         echo "========================================================"
         echo ""
         echo "  Web フロントエンド:    http://127.0.0.1:5173"
-        echo "  API サーバー:          http://127.0.0.1:8080"
+        echo "  API サーバー:          http://127.0.0.1:9898"
         echo "  Firebase Emulator UI:  http://127.0.0.1:4000"
         echo ""
         echo "========================================================"

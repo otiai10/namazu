@@ -19,13 +19,16 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    watch: {
+      usePolling: process.env.VITE_USE_POLLING === 'true',
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:9898',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:9898',
         changeOrigin: true,
       },
     },
