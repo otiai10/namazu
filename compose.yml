@@ -9,7 +9,7 @@ services:
       - "8081:8081"   # Firestore (ホスト8081 → コンテナ8081)
       - "9099:9099"   # Auth
     environment:
-      FIREBASE_PROJECT_ID: namazu-test
+      FIREBASE_PROJECT_ID: namazu-local
       AUTH: "true"
       FIRESTORE: "true"
     volumes:
@@ -34,7 +34,7 @@ services:
     environment:
       NAMAZU_SOURCE_TYPE: p2pquake
       NAMAZU_SOURCE_ENDPOINT: wss://api-realtime-sandbox.p2pquake.net/v2/ws
-      NAMAZU_STORE_PROJECT_ID: namazu-test
+      NAMAZU_STORE_PROJECT_ID: namazu-local
       NAMAZU_API_ADDR: ":9898"
       NAMAZU_STORE_DATABASE: localdev
       FIRESTORE_EMULATOR_HOST: firebase-emulators:8081
@@ -63,6 +63,8 @@ services:
     environment:
       VITE_USE_POLLING: "true"
       VITE_FIRESTORE_EMULATOR_HOST: "localhost:8081"
+      VITE_FIRESTORE_DATABASE: localdev
+      VITE_FIRESTORE_PROJECT_ID: namazu-local
       VITE_API_PROXY_TARGET: http://api:9898
     volumes:
       - ./web:/app
