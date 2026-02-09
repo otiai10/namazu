@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/otiai10/namazu/internal/store"
-	"github.com/otiai10/namazu/internal/subscription"
+	"github.com/otiai10/namazu/backend/internal/store"
+	"github.com/otiai10/namazu/backend/internal/subscription"
 )
 
 // Server represents the REST API server

@@ -28,7 +28,7 @@ Claude Code が自律的に開発・テスト・動作確認を行うために�
 ### 1. `--test-mode` フラグ
 
 ```bash
-go run ./cmd/namazu/ --test-mode
+go run ./backend/cmd/namazu/ --test-mode
 ```
 
 - 認証を無効化して起動
@@ -134,8 +134,8 @@ Claude Code が以下を自律的に実行可能になった：
 
 ## 関連ファイル
 
-- `cmd/namazu/main.go` - `--test-mode` フラグ追加
-- `internal/store/firestore.go` - Emulator 検出ログ追加
+- `backend/cmd/namazu/main.go` - `--test-mode` フラグ追加
+- `backend/internal/store/firestore.go` - Emulator 検出ログ追加
 - `scripts/e2e-test.sh` - E2E テストスクリプト
-- `cmd/dummysubscriber/main.go` - PORT 環境変数対応
+- `backend/cmd/dummysubscriber/main.go` - PORT 環境変数対応
 - `.claude/settings.json` - Hook 設定

@@ -15,7 +15,7 @@ A robust, concurrent webhook sender with HMAC-SHA256 signature support for Go.
 ## Installation
 
 ```go
-import "github.com/otiai10/namazu/internal/delivery/webhook"
+import "github.com/otiai10/namazu/backend/internal/delivery/webhook"
 ```
 
 ## Quick Start
@@ -30,7 +30,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/otiai10/namazu/internal/delivery/webhook"
+    "github.com/otiai10/namazu/backend/internal/delivery/webhook"
 )
 
 func main() {
@@ -120,7 +120,7 @@ X-Signature-256: sha256=734cc62f32841568f45715aeb9f4d7891324e6d948e4c6c60c0621cd
 ### Receiver Side Verification
 
 ```go
-import "github.com/otiai10/namazu/internal/delivery/webhook"
+import "github.com/otiai10/namazu/backend/internal/delivery/webhook"
 
 // In your webhook handler
 func webhookHandler(w http.ResponseWriter, r *http.Request) {

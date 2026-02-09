@@ -11,15 +11,15 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/otiai10/namazu/internal/api"
-	"github.com/otiai10/namazu/internal/app"
-	"github.com/otiai10/namazu/internal/auth"
-	"github.com/otiai10/namazu/internal/config"
-	"github.com/otiai10/namazu/internal/delivery/webhook"
-	"github.com/otiai10/namazu/internal/quota"
-	"github.com/otiai10/namazu/internal/store"
-	"github.com/otiai10/namazu/internal/subscription"
-	"github.com/otiai10/namazu/internal/user"
+	"github.com/otiai10/namazu/backend/internal/api"
+	"github.com/otiai10/namazu/backend/internal/app"
+	"github.com/otiai10/namazu/backend/internal/auth"
+	"github.com/otiai10/namazu/backend/internal/config"
+	"github.com/otiai10/namazu/backend/internal/delivery/webhook"
+	"github.com/otiai10/namazu/backend/internal/quota"
+	"github.com/otiai10/namazu/backend/internal/store"
+	"github.com/otiai10/namazu/backend/internal/subscription"
+	"github.com/otiai10/namazu/backend/internal/user"
 )
 
 func main() {

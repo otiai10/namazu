@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/otiai10/namazu/internal/auth"
-	"github.com/otiai10/namazu/internal/billing"
-	"github.com/otiai10/namazu/internal/config"
-	"github.com/otiai10/namazu/internal/quota"
-	"github.com/otiai10/namazu/internal/store"
-	"github.com/otiai10/namazu/internal/subscription"
-	"github.com/otiai10/namazu/internal/user"
-	"github.com/otiai10/namazu/internal/version"
+	"github.com/otiai10/namazu/backend/internal/auth"
+	"github.com/otiai10/namazu/backend/internal/billing"
+	"github.com/otiai10/namazu/backend/internal/config"
+	"github.com/otiai10/namazu/backend/internal/quota"
+	"github.com/otiai10/namazu/backend/internal/store"
+	"github.com/otiai10/namazu/backend/internal/subscription"
+	"github.com/otiai10/namazu/backend/internal/user"
+	"github.com/otiai10/namazu/backend/internal/version"
 )
 
 // RouterConfig holds dependencies for the router

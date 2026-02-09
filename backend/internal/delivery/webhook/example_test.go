@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/otiai10/namazu/internal/delivery/webhook"
+	"github.com/otiai10/namazu/backend/internal/delivery/webhook"
 )
 
 // Example_singleWebhook demonstrates sending to a single webhook

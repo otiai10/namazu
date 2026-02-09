@@ -1,7 +1,7 @@
 package quota
 
 import (
-	"github.com/otiai10/namazu/internal/user"
+	"github.com/otiai10/namazu/backend/internal/user"
 )
 
 // PlanLimits defines limits per plan

@@ -3,7 +3,7 @@ package p2pquake
 import (
 	"time"
 
-	"github.com/otiai10/namazu/internal/source"
+	"github.com/otiai10/namazu/backend/internal/source"
 )
 
 // Scale constants for Japanese seismic intensity scale

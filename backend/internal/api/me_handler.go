@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/otiai10/namazu/internal/auth"
-	"github.com/otiai10/namazu/internal/user"
+	"github.com/otiai10/namazu/backend/internal/auth"
+	"github.com/otiai10/namazu/backend/internal/user"
 )
 
 // MeHandler handles user profile endpoints

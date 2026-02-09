@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otiai10/namazu/internal/source"
+	"github.com/otiai10/namazu/backend/internal/source"
 )
 
 // mockEvent implements source.Event for testing

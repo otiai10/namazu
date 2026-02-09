@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/otiai10/namazu/internal/subscription"
+	"github.com/otiai10/namazu/backend/internal/subscription"
 )
 
 // mockSubscriptionRepo is a mock implementation of subscription.Repository for testing

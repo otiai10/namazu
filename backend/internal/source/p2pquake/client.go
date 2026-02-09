@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/otiai10/namazu/internal/source"
+	"github.com/otiai10/namazu/backend/internal/source"
 )
 
 const (

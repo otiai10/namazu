@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/otiai10/namazu/internal/config"
+	"github.com/otiai10/namazu/backend/internal/config"
 )
 
 // ErrReadOnly is returned when attempting write operations on StaticRepository

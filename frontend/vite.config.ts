@@ -17,7 +17,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../cmd/namazu/static',
+    outDir: '../backend/cmd/namazu/static',
     emptyOutDir: true,
   },
   server: {

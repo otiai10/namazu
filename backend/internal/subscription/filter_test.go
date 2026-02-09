@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otiai10/namazu/internal/source"
-	"github.com/otiai10/namazu/internal/source/p2pquake"
+	"github.com/otiai10/namazu/backend/internal/source"
+	"github.com/otiai10/namazu/backend/internal/source/p2pquake"
 )
 
 // mockEvent implements source.Event for testing

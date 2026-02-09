@@ -15,16 +15,16 @@ WORKDIR /app
 
 # Copy workspace and lock files for dependency caching
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json* ./
-COPY web/package.json ./web/
+COPY frontend/package.json ./frontend/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
 # Copy frontend source files
-COPY web/ ./web/
+COPY frontend/ ./frontend/
 
-# Build frontend (outputs to ../cmd/namazu/static per vite.config.ts)
-WORKDIR /app/web
+# Build frontend (outputs to ../backend/cmd/namazu/static per vite.config.ts)
+WORKDIR /app/frontend
 RUN pnpm build
 
 # =============================================================================
@@ -50,16 +50,16 @@ RUN go mod download
 COPY . .
 
 # Copy frontend build output to embed location
-COPY --from=frontend-builder /app/cmd/namazu/static ./cmd/namazu/static
+COPY --from=frontend-builder /app/backend/cmd/namazu/static ./backend/cmd/namazu/static
 
 # Build the binary
 # CGO_ENABLED=0 for static binary
 # -ldflags="-s -w" to strip debug info and reduce size
 # -X to embed commit hash for version tracking
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-s -w -X github.com/otiai10/namazu/internal/version.CommitHash=${COMMIT_HASH}" \
+    -ldflags="-s -w -X github.com/otiai10/namazu/backend/internal/version.CommitHash=${COMMIT_HASH}" \
     -o /app/namazu \
-    ./cmd/namazu
+    ./backend/cmd/namazu
 
 # =============================================================================
 # Stage 3: Runtime Image

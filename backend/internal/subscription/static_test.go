@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/otiai10/namazu/internal/config"
+	"github.com/otiai10/namazu/backend/internal/config"
 )
 
 func TestNewStaticRepository(t *testing.T) {

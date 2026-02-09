@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otiai10/namazu/internal/config"
-	"github.com/otiai10/namazu/internal/delivery/webhook"
-	"github.com/otiai10/namazu/internal/source"
-	"github.com/otiai10/namazu/internal/source/p2pquake"
-	"github.com/otiai10/namazu/internal/store"
-	"github.com/otiai10/namazu/internal/subscription"
+	"github.com/otiai10/namazu/backend/internal/config"
+	"github.com/otiai10/namazu/backend/internal/delivery/webhook"
+	"github.com/otiai10/namazu/backend/internal/source"
+	"github.com/otiai10/namazu/backend/internal/source/p2pquake"
+	"github.com/otiai10/namazu/backend/internal/store"
+	"github.com/otiai10/namazu/backend/internal/subscription"
 )
 
 // mockClient is a mock implementation of p2pquake.Client for testing

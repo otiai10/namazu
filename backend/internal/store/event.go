@@ -8,7 +8,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 
-	"github.com/otiai10/namazu/internal/source"
+	"github.com/otiai10/namazu/backend/internal/source"
 )
 
 // EventRecord represents an event stored in Firestore

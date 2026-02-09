@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/otiai10/namazu/internal/delivery/webhook"
+	"github.com/otiai10/namazu/backend/internal/delivery/webhook"
 )
 
 const testSecret = "test-secret-key"

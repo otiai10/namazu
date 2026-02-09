@@ -9,9 +9,9 @@
 *.swo
 
 # Build outputs
-cmd/namazu/static
-web/node_modules
-web/dist
+backend/cmd/namazu/static
+frontend/node_modules
+frontend/dist
 
 # Test files
 *_test.go

@@ -122,7 +122,7 @@ fi
 
 # 2. Start dummy webhook receiver
 log_info "Starting webhook receiver on port $WEBHOOK_PORT..."
-PORT=$WEBHOOK_PORT go run ./cmd/dummysubscriber/ > /tmp/webhook-e2e.log 2>&1 &
+PORT=$WEBHOOK_PORT go run ./backend/cmd/dummysubscriber/ > /tmp/webhook-e2e.log 2>&1 &
 WEBHOOK_PID=$!
 sleep 2
 
@@ -142,12 +142,12 @@ if [ "$USE_EMULATOR" = true ]; then
     NAMAZU_STORE_PROJECT_ID=namazu-test \
     NAMAZU_STORE_DATABASE="(default)" \
     NAMAZU_API_ADDR=":$API_PORT" \
-    go run ./cmd/namazu/ --test-mode > /tmp/namazu-e2e.log 2>&1 &
+    go run ./backend/cmd/namazu/ --test-mode > /tmp/namazu-e2e.log 2>&1 &
 else
     # Use real Firestore from .env.localdev
     source .env.localdev 2>/dev/null || true
     NAMAZU_API_ADDR=":$API_PORT" \
-    go run ./cmd/namazu/ --test-mode > /tmp/namazu-e2e.log 2>&1 &
+    go run ./backend/cmd/namazu/ --test-mode > /tmp/namazu-e2e.log 2>&1 &
 fi
 NAMAZU_PID=$!
 sleep 3

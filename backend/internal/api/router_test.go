@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otiai10/namazu/internal/auth"
-	"github.com/otiai10/namazu/internal/delivery/webhook"
-	"github.com/otiai10/namazu/internal/user"
+	"github.com/otiai10/namazu/backend/internal/auth"
+	"github.com/otiai10/namazu/backend/internal/delivery/webhook"
+	"github.com/otiai10/namazu/backend/internal/user"
 )
 
 // mockTokenVerifier implements auth.TokenVerifier for testing

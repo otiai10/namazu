@@ -3,11 +3,11 @@
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "pnpm --filter namazu-web dev",
-    "build": "pnpm --filter namazu-web build",
-    "preview": "pnpm --filter namazu-web preview",
-    "lint": "pnpm --filter namazu-web lint",
-    "typecheck": "pnpm --filter namazu-web tsc --noEmit"
+    "dev": "pnpm --filter namazu-frontend dev",
+    "build": "pnpm --filter namazu-frontend build",
+    "preview": "pnpm --filter namazu-frontend preview",
+    "lint": "pnpm --filter namazu-frontend lint",
+    "typecheck": "pnpm --filter namazu-frontend tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "~5.6.2"

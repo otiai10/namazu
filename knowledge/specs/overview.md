@@ -56,22 +56,23 @@ P2P地震情報 WebSocket API から地震情報を受信し、登録された W
 
 ```
 namazu/
-├── cmd/namazu/
-│   ├── main.go           # エントリーポイント
-│   └── static/           # ビルド済みフロントエンド (embed)
-├── internal/
-│   ├── api/              # REST API ハンドラー
-│   ├── app/              # アプリケーション制御
-│   ├── auth/             # 認証ミドルウェア
-│   ├── billing/          # Stripe 連携
-│   ├── config/           # 設定管理
-│   ├── delivery/webhook/ # Webhook 配信
-│   ├── quota/            # クォータ管理
-│   ├── source/           # データソース抽象化
-│   ├── store/            # Firestore リポジトリ
-│   ├── subscription/     # サブスクリプション管理
-│   └── user/             # ユーザー管理
-├── web/                  # フロントエンド (React)
+├── backend/
+│   ├── cmd/namazu/
+│   │   ├── main.go           # エントリーポイント
+│   │   └── static/           # ビルド済みフロントエンド (embed)
+│   └── internal/
+│       ├── api/              # REST API ハンドラー
+│       ├── app/              # アプリケーション制御
+│       ├── auth/             # 認証ミドルウェア
+│       ├── billing/          # Stripe 連携
+│       ├── config/           # 設定管理
+│       ├── delivery/webhook/ # Webhook 配信
+│       ├── quota/            # クォータ管理
+│       ├── source/           # データソース抽象化
+│       ├── store/            # Firestore リポジトリ
+│       ├── subscription/     # サブスクリプション管理
+│       └── user/             # ユーザー管理
+├── frontend/             # フロントエンド (React)
 ├── infra/                # Pulumi IaC
 ├── scripts/              # ユーティリティスクリプト
 ├── knowledge/            # ドキュメント
