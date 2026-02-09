@@ -42,6 +42,12 @@ services:
       - .:/app
       - go-mod-cache:/go/pkg/mod
     working_dir: /app
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9898/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       firebase-emulators:
         condition: service_healthy
@@ -64,7 +70,8 @@ services:
     working_dir: /app
     command: sh -c "corepack enable && pnpm install && pnpm dev --host"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   # ============================================================
   # Startup Info (開発サーバーのアクセス先を表示)
@@ -72,7 +79,12 @@ services:
   info:
     image: alpine:latest
     depends_on:
-      - web
+      firebase-emulators:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     command: |
       sh -c '
         sleep 8
