@@ -33,6 +33,7 @@ jobs:
   build-and-push:
     name: Build and Push
     runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' && 'production' || 'staging' }}
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
     steps:
@@ -43,10 +44,17 @@ jobs:
         id: env
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            ENV="${{ github.event.inputs.environment }}"
           else
-            echo "environment=stg" >> $GITHUB_OUTPUT
+            ENV="stg"
           fi
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+
+          # Firebase tenant ID per environment
+          case "$ENV" in
+            prod) echo "tenant_id=prod-c4rwr" >> $GITHUB_OUTPUT ;;
+            *)    echo "tenant_id=stage-lctnv" >> $GITHUB_OUTPUT ;;
+          esac
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -81,6 +89,10 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             COMMIT_HASH=${{ github.sha }}
+            VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=namazu-live.firebaseapp.com
+            VITE_FIREBASE_PROJECT_ID=namazu-live
+            VITE_FIREBASE_TENANT_ID=${{ steps.env.outputs.tenant_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

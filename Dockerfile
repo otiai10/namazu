@@ -8,6 +8,16 @@
 # =============================================================================
 FROM node:22-alpine AS frontend-builder
 
+# Firebase / Stripe config (public values, baked into JS bundle)
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_TENANT_ID
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
+    VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN \
+    VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID \
+    VITE_FIREBASE_TENANT_ID=$VITE_FIREBASE_TENANT_ID
+
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
