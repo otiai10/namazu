@@ -1,9 +1,50 @@
+import { useState, useEffect, useRef } from 'react'
 import { useEvents } from '@/hooks/useEvents'
 import { EventCard } from './EventCard'
 import { LoadingSpinner } from './LoadingSpinner'
 
+const NEW_EVENT_DURATION_MS = 10_000
+
 export function EventFeed() {
   const { events, isLoading, error } = useEvents()
+  const [newEventIds, setNewEventIds] = useState<Set<string>>(new Set())
+  const knownIdsRef = useRef<Set<string> | null>(null)
+
+  useEffect(() => {
+    if (isLoading || events.length === 0) return
+
+    const currentIds = new Set(events.map((e) => e.id))
+
+    if (knownIdsRef.current === null) {
+      knownIdsRef.current = currentIds
+      return
+    }
+
+    const freshIds = new Set<string>()
+    for (const id of currentIds) {
+      if (!knownIdsRef.current.has(id)) {
+        freshIds.add(id)
+      }
+    }
+
+    knownIdsRef.current = currentIds
+
+    if (freshIds.size === 0) return
+
+    setNewEventIds((prev) => new Set([...prev, ...freshIds]))
+
+    const timer = setTimeout(() => {
+      setNewEventIds((prev) => {
+        const next = new Set(prev)
+        for (const id of freshIds) {
+          next.delete(id)
+        }
+        return next
+      })
+    }, NEW_EVENT_DURATION_MS)
+
+    return () => clearTimeout(timer)
+  }, [events, isLoading])
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -22,7 +63,13 @@ export function EventFeed() {
             地震情報はまだありません
           </div>
         ) : (
-          events.map((event) => <EventCard key={event.id} event={event} />)
+          events.map((event) => (
+            <EventCard
+              key={event.id}
+              event={event}
+              isNew={newEventIds.has(event.id)}
+            />
+          ))
         )}
       </div>
     </div>

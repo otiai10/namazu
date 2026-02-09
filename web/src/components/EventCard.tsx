@@ -4,13 +4,14 @@ import type { EarthquakeEvent } from '@/hooks/useEvents'
 
 interface EventCardProps {
   event: EarthquakeEvent
+  isNew?: boolean
 }
 
-export function EventCard({ event }: EventCardProps) {
+export function EventCard({ event, isNew = false }: EventCardProps) {
   return (
     <div className="px-4 py-2 hover:bg-gray-50 transition-colors">
       <div className="flex items-start space-x-3">
-        <SeverityBadge severity={event.severity} />
+        <SeverityBadge severity={event.severity} isNew={isNew} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-900 truncate">
