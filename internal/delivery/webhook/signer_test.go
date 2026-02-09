@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"testing"
+	"time"
 )
 
 func TestSign(t *testing.T) {
@@ -130,6 +131,119 @@ func TestSignConsistency(t *testing.T) {
 			t.Errorf("Sign() inconsistent: sig1=%s, sig2=%s", sig1, sig2)
 		}
 	})
+}
+
+func TestSignV0_Format(t *testing.T) {
+	secret := "test-secret"
+	timestamp := time.Now().Unix()
+	payload := []byte(`{"event":"earthquake"}`)
+
+	signature := SignV0(secret, timestamp, payload)
+
+	if len(signature) < 3 || signature[:3] != "v0=" {
+		t.Errorf("SignV0() signature should start with 'v0=', got %s", signature)
+	}
+}
+
+func TestSignV0_IncludesTimestamp(t *testing.T) {
+	secret := "test-secret"
+	payload := []byte(`{"event":"earthquake"}`)
+	ts1 := int64(1700000000)
+	ts2 := int64(1700000001)
+
+	sig1 := SignV0(secret, ts1, payload)
+	sig2 := SignV0(secret, ts2, payload)
+
+	if sig1 == sig2 {
+		t.Errorf("SignV0() should produce different signatures for different timestamps, both got %s", sig1)
+	}
+}
+
+func TestSignV0_Deterministic(t *testing.T) {
+	secret := "test-secret"
+	timestamp := int64(1700000000)
+	payload := []byte(`{"event":"earthquake"}`)
+
+	sig1 := SignV0(secret, timestamp, payload)
+	sig2 := SignV0(secret, timestamp, payload)
+
+	if sig1 != sig2 {
+		t.Errorf("SignV0() should be deterministic: sig1=%s, sig2=%s", sig1, sig2)
+	}
+}
+
+func TestVerifyV0_ValidSignature(t *testing.T) {
+	secret := "test-secret"
+	timestamp := time.Now().Unix()
+	payload := []byte(`{"event":"earthquake","magnitude":5.5}`)
+
+	signature := SignV0(secret, timestamp, payload)
+	if !VerifyV0(secret, timestamp, payload, signature, DefaultMaxAge) {
+		t.Error("VerifyV0() returned false for valid signature with fresh timestamp")
+	}
+}
+
+func TestVerifyV0_ExpiredTimestamp(t *testing.T) {
+	secret := "test-secret"
+	timestamp := time.Now().Unix() - 360 // 6 minutes ago
+	payload := []byte(`{"event":"earthquake"}`)
+
+	signature := SignV0(secret, timestamp, payload)
+	if VerifyV0(secret, timestamp, payload, signature, DefaultMaxAge) {
+		t.Error("VerifyV0() should return false for expired timestamp (6 min old)")
+	}
+}
+
+func TestVerifyV0_FutureTimestamp(t *testing.T) {
+	secret := "test-secret"
+	timestamp := time.Now().Unix() + 120 // 2 minutes in the future
+	payload := []byte(`{"event":"earthquake"}`)
+
+	signature := SignV0(secret, timestamp, payload)
+	if VerifyV0(secret, timestamp, payload, signature, DefaultMaxAge) {
+		t.Error("VerifyV0() should return false for future timestamp (>60s)")
+	}
+}
+
+func TestVerifyV0_WrongSecret(t *testing.T) {
+	secret := "correct-secret"
+	timestamp := time.Now().Unix()
+	payload := []byte(`{"event":"earthquake"}`)
+
+	signature := SignV0(secret, timestamp, payload)
+	if VerifyV0("wrong-secret", timestamp, payload, signature, DefaultMaxAge) {
+		t.Error("VerifyV0() should return false for wrong secret")
+	}
+}
+
+func TestVerifyV0_TamperedPayload(t *testing.T) {
+	secret := "test-secret"
+	timestamp := time.Now().Unix()
+	payload := []byte(`{"event":"earthquake","magnitude":5.5}`)
+
+	signature := SignV0(secret, timestamp, payload)
+	tampered := []byte(`{"event":"earthquake","magnitude":9.9}`)
+	if VerifyV0(secret, timestamp, tampered, signature, DefaultMaxAge) {
+		t.Error("VerifyV0() should return false for tampered payload")
+	}
+}
+
+func TestVerifyV0_CustomMaxAge(t *testing.T) {
+	secret := "test-secret"
+	payload := []byte(`{"event":"earthquake"}`)
+
+	// 7 minutes ago - should fail with default 5min but pass with 10min
+	timestamp := time.Now().Unix() - 420
+
+	signature := SignV0(secret, timestamp, payload)
+
+	if VerifyV0(secret, timestamp, payload, signature, DefaultMaxAge) {
+		t.Error("VerifyV0() should return false with default maxAge for 7-min-old timestamp")
+	}
+
+	if !VerifyV0(secret, timestamp, payload, signature, 10*time.Minute) {
+		t.Error("VerifyV0() should return true with 10-minute maxAge for 7-min-old timestamp")
+	}
 }
 
 func BenchmarkSign(b *testing.B) {
