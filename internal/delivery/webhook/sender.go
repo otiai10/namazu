@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -174,7 +175,7 @@ func (s *Sender) SendAll(ctx context.Context, targets []Target, payload []byte) 
 		wg.Add(1)
 		go func(index int, t Target) {
 			defer wg.Done()
-			results[index] = s.Send(ctx, t.URL, t.Secret, payload)
+			results[index] = s.sendTarget(ctx, t, payload)
 		}(i, target)
 	}
 
@@ -182,9 +183,52 @@ func (s *Sender) SendAll(ctx context.Context, targets []Target, payload []byte) 
 	return results
 }
 
+func (s *Sender) sendTarget(ctx context.Context, target Target, payload []byte) DeliveryResult {
+	start := time.Now()
+	result := DeliveryResult{URL: target.URL}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, bytes.NewReader(payload))
+	if err != nil {
+		result.ErrorMessage = fmt.Sprintf("failed to create request: %v", err)
+		result.ResponseTime = time.Since(start)
+		return result
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "namazu/1.0")
+
+	switch target.SignVersion {
+	case "v0":
+		timestamp := time.Now().Unix()
+		req.Header.Set("X-Signature-256", SignV0(target.Secret, timestamp, payload))
+		req.Header.Set("X-Signature-Timestamp", strconv.FormatInt(timestamp, 10))
+	default:
+		req.Header.Set("X-Signature-256", Sign(target.Secret, payload))
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		result.ErrorMessage = fmt.Sprintf("request failed: %v", err)
+		result.ResponseTime = time.Since(start)
+		return result
+	}
+	defer resp.Body.Close()
+
+	result.StatusCode = resp.StatusCode
+	result.Success = resp.StatusCode >= 200 && resp.StatusCode < 300
+	result.ResponseTime = time.Since(start)
+
+	if !result.Success {
+		result.ErrorMessage = fmt.Sprintf("unexpected status: %d", resp.StatusCode)
+	}
+
+	return result
+}
+
 // Target represents a webhook destination with its configuration.
 type Target struct {
-	URL    string // The webhook endpoint URL
-	Secret string // Secret key for HMAC signature generation
-	Name   string // Optional human-readable name for logging/debugging
+	URL         string // The webhook endpoint URL
+	Secret      string // Secret key for HMAC signature generation
+	Name        string // Optional human-readable name for logging/debugging
+	SignVersion string // Signing version ("v0" for timestamp-based, empty for legacy)
 }

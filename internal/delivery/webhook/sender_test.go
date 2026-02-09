@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -526,6 +528,164 @@ func TestDeliveryResult_Structure(t *testing.T) {
 	}
 
 	// ErrorMessage may or may not be populated depending on success
+}
+
+func TestSendTarget_V0_SetsTimestampHeader(t *testing.T) {
+	var receivedTimestamp string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTimestamp = r.Header.Get("X-Signature-Timestamp")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sender := NewSender()
+	target := Target{URL: server.URL, Secret: "test-secret", Name: "v0-target", SignVersion: "v0"}
+	result := sender.sendTarget(context.Background(), target, []byte(`{"event":"test"}`))
+
+	if !result.Success {
+		t.Fatalf("expected success, got error: %s", result.ErrorMessage)
+	}
+
+	if receivedTimestamp == "" {
+		t.Fatal("X-Signature-Timestamp header should be present for v0 targets")
+	}
+
+	ts, err := strconv.ParseInt(receivedTimestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("X-Signature-Timestamp should be a valid integer, got %s: %v", receivedTimestamp, err)
+	}
+
+	now := time.Now().Unix()
+	if ts < now-5 || ts > now+5 {
+		t.Errorf("timestamp %d should be close to current time %d", ts, now)
+	}
+}
+
+func TestSendTarget_V0_SignatureFormat(t *testing.T) {
+	var receivedSignature string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSignature = r.Header.Get("X-Signature-256")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sender := NewSender()
+	target := Target{URL: server.URL, Secret: "test-secret", Name: "v0-target", SignVersion: "v0"}
+	result := sender.sendTarget(context.Background(), target, []byte(`{"event":"test"}`))
+
+	if !result.Success {
+		t.Fatalf("expected success, got error: %s", result.ErrorMessage)
+	}
+
+	if !strings.HasPrefix(receivedSignature, "v0=") {
+		t.Errorf("X-Signature-256 should start with 'v0=' for v0 targets, got %s", receivedSignature)
+	}
+}
+
+func TestSendTarget_V0_SignatureIsVerifiable(t *testing.T) {
+	secret := "test-secret"
+	payload := []byte(`{"event":"test"}`)
+	var receivedSignature string
+	var receivedTimestamp string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSignature = r.Header.Get("X-Signature-256")
+		receivedTimestamp = r.Header.Get("X-Signature-Timestamp")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sender := NewSender()
+	target := Target{URL: server.URL, Secret: secret, Name: "v0-target", SignVersion: "v0"}
+	result := sender.sendTarget(context.Background(), target, payload)
+
+	if !result.Success {
+		t.Fatalf("expected success, got error: %s", result.ErrorMessage)
+	}
+
+	ts, err := strconv.ParseInt(receivedTimestamp, 10, 64)
+	if err != nil {
+		t.Fatalf("failed to parse timestamp: %v", err)
+	}
+
+	if !VerifyV0(secret, ts, payload, receivedSignature, DefaultMaxAge) {
+		t.Error("signature sent by sendTarget should be verifiable with VerifyV0")
+	}
+}
+
+func TestSendTarget_Legacy_NoTimestampHeader(t *testing.T) {
+	var receivedTimestamp string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTimestamp = r.Header.Get("X-Signature-Timestamp")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sender := NewSender()
+	target := Target{URL: server.URL, Secret: "test-secret", Name: "legacy-target"}
+	result := sender.sendTarget(context.Background(), target, []byte(`{"event":"test"}`))
+
+	if !result.Success {
+		t.Fatalf("expected success, got error: %s", result.ErrorMessage)
+	}
+
+	if receivedTimestamp != "" {
+		t.Errorf("legacy targets should not have X-Signature-Timestamp header, got %s", receivedTimestamp)
+	}
+}
+
+func TestSendAll_MixedVersions(t *testing.T) {
+	secret := "test-secret"
+	payload := []byte(`{"event":"test"}`)
+
+	var legacySig, v0Sig string
+	var v0Timestamp string
+
+	legacyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		legacySig = r.Header.Get("X-Signature-256")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer legacyServer.Close()
+
+	v0Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v0Sig = r.Header.Get("X-Signature-256")
+		v0Timestamp = r.Header.Get("X-Signature-Timestamp")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer v0Server.Close()
+
+	targets := []Target{
+		{URL: legacyServer.URL, Secret: secret, Name: "legacy"},
+		{URL: v0Server.URL, Secret: secret, Name: "v0", SignVersion: "v0"},
+	}
+
+	sender := NewSender()
+	results := sender.SendAll(context.Background(), targets, payload)
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	for i, r := range results {
+		if !r.Success {
+			t.Errorf("result %d: expected success, got error: %s", i, r.ErrorMessage)
+		}
+	}
+
+	if !strings.HasPrefix(legacySig, "sha256=") {
+		t.Errorf("legacy target should have sha256= signature, got %s", legacySig)
+	}
+
+	if !strings.HasPrefix(v0Sig, "v0=") {
+		t.Errorf("v0 target should have v0= signature, got %s", v0Sig)
+	}
+
+	if v0Timestamp == "" {
+		t.Error("v0 target should have X-Signature-Timestamp header")
+	}
 }
 
 // Benchmark tests

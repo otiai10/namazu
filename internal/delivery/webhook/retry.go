@@ -54,7 +54,7 @@ func NewRetryingSender(sender *Sender, config RetryConfig) *RetryingSender {
 func (r *RetryingSender) Send(ctx context.Context, target Target, payload []byte) DeliveryResult {
 	// If retry is disabled, just send once
 	if !r.config.Enabled {
-		return r.sender.Send(ctx, target.URL, target.Secret, payload)
+		return r.sender.sendTarget(ctx, target, payload)
 	}
 
 	var result DeliveryResult
@@ -91,7 +91,7 @@ func (r *RetryingSender) Send(ctx context.Context, target Target, payload []byte
 		}
 
 		// Attempt delivery
-		result = r.sender.Send(ctx, target.URL, target.Secret, payload)
+		result = r.sender.sendTarget(ctx, target, payload)
 		result.RetryCount = retryCount
 
 		// Success - no need to retry
