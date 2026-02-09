@@ -26,7 +26,9 @@ func TestVerifyURL_Success(t *testing.T) {
 
 		resp := ChallengeResponse{Challenge: req.Challenge}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -45,7 +47,9 @@ func TestVerifyURL_WrongChallenge(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := ChallengeResponse{Challenge: "wrong-token"}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -98,7 +102,7 @@ func TestVerifyURL_Timeout(t *testing.T) {
 func TestVerifyURL_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("not-json"))
+		_, _ = w.Write([]byte("not-json"))
 	}))
 	defer server.Close()
 
@@ -134,11 +138,16 @@ func TestVerifyURL_IncludesSignature(t *testing.T) {
 
 		var req ChallengeRequest
 		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &req)
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("failed to unmarshal request: %v", err)
+			return
+		}
 
 		resp := ChallengeResponse{Challenge: req.Challenge}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

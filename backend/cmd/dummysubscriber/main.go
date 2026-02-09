@@ -55,7 +55,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 			challenge, _ := payload["challenge"].(string)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"challenge": challenge})
+			_ = json.NewEncoder(w).Encode(map[string]string{"challenge": challenge})
 			log.Printf("URL verification challenge responded: %s", challenge)
 			return
 		}
