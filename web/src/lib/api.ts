@@ -57,6 +57,9 @@ export interface Subscription {
     type: string
     url: string
     secret: string
+    secret_prefix?: string
+    verified?: boolean
+    sign_version?: string
     retry?: {
       enabled: boolean
       max_retries: number
@@ -75,7 +78,23 @@ export interface CreateSubscriptionInput {
   delivery: {
     type: string
     url: string
+  }
+  filter?: {
+    min_scale?: number
+    prefectures?: string[]
+  }
+}
+
+export interface CreateSubscriptionResponse {
+  id: string
+  name: string
+  delivery: {
+    type: string
+    url: string
     secret: string
+    secret_prefix?: string
+    verified?: boolean
+    sign_version?: string
   }
   filter?: {
     min_scale?: number
@@ -125,7 +144,7 @@ export const api = {
     return response.json()
   },
 
-  async createSubscription(input: CreateSubscriptionInput): Promise<{ id: string }> {
+  async createSubscription(input: CreateSubscriptionInput): Promise<CreateSubscriptionResponse> {
     const response = await fetchWithAuth('/subscriptions', {
       method: 'POST',
       body: JSON.stringify(input),

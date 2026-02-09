@@ -48,10 +48,20 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		log.Println("✓ Signature verified")
 	}
 
-	// Pretty print JSON
-	var prettyJSON map[string]interface{}
-	if err := json.Unmarshal(body, &prettyJSON); err == nil {
-		formatted, _ := json.MarshalIndent(prettyJSON, "", "  ")
+	// Handle URL verification challenge
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if payload["type"] == "url_verification" {
+			challenge, _ := payload["challenge"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"challenge": challenge})
+			log.Printf("URL verification challenge responded: %s", challenge)
+			return
+		}
+
+		// Pretty print JSON for normal events
+		formatted, _ := json.MarshalIndent(payload, "", "  ")
 		log.Printf("\n=== Earthquake Received at %s ===\n%s\n",
 			time.Now().Format("15:04:05"), string(formatted))
 	}

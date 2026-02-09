@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { api, type Subscription, type CreateSubscriptionInput } from '@/lib/api'
+import { api, type Subscription, type CreateSubscriptionInput, type CreateSubscriptionResponse } from '@/lib/api'
+import { SecretDisplay } from './SecretDisplay'
 
 interface SubscriptionFormProps {
   subscription?: Subscription
@@ -15,10 +16,10 @@ export function SubscriptionForm({
   const isEditing = !!subscription
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [createdSecret, setCreatedSecret] = useState<string | null>(null)
 
   const [name, setName] = useState(subscription?.name || '')
   const [url, setUrl] = useState(subscription?.delivery.url || '')
-  const [secret, setSecret] = useState(subscription?.delivery.secret || '')
   const [minScale, setMinScale] = useState(subscription?.filter?.min_scale || 0)
   const [prefectures, setPrefectures] = useState(
     subscription?.filter?.prefectures?.join(', ') || ''
@@ -34,7 +35,6 @@ export function SubscriptionForm({
       delivery: {
         type: 'webhook',
         url,
-        secret,
       },
       filter:
         minScale > 0 || prefectures.trim()
@@ -53,15 +53,25 @@ export function SubscriptionForm({
     try {
       if (isEditing && subscription) {
         await api.updateSubscription(subscription.id, input)
+        onSuccess()
       } else {
-        await api.createSubscription(input)
+        const response: CreateSubscriptionResponse = await api.createSubscription(input)
+        setCreatedSecret(response.delivery.secret)
       }
-      onSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存に失敗しました')
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  function handleSecretDismiss() {
+    setCreatedSecret(null)
+    onSuccess()
+  }
+
+  if (createdSecret) {
+    return <SecretDisplay secret={createdSecret} onDismiss={handleSecretDismiss} />
   }
 
   return (
@@ -117,19 +127,6 @@ export function SubscriptionForm({
             onChange={(e) => setUrl(e.target.value)}
             className="input font-mono text-sm"
             placeholder="https://example.com/webhook"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="label">シークレット (HMAC 署名用)</label>
-          <input
-            type="password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            autoComplete="off"
-            className="input font-mono text-sm"
-            placeholder="your-secret-key"
             required
           />
         </div>
