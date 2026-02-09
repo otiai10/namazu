@@ -7,9 +7,9 @@ export function EventFeed() {
 
   return (
     <div className="card p-0 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
-        <h2 className="text-lg font-semibold text-gray-900">地震速報</h2>
-        <p className="text-sm text-gray-500">リアルタイム更新</p>
+      <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 rounded-t-xl flex items-center gap-2">
+        <h2 className="text-base font-semibold text-gray-900">地震速報</h2>
+        <span className="text-xs text-gray-400">- リアルタイム更新</span>
       </div>
 
       <div className="max-h-[600px] overflow-y-auto divide-y divide-gray-100">
