@@ -26,6 +26,7 @@ type RouterConfig struct {
 	BillingConfig    *config.BillingConfig
 	SecurityConfig   *config.SecurityConfig // nil uses defaults
 	URLValidator     URLValidator           // nil means no URL validation
+	Challenger       Challenger             // nil means no challenge verification
 }
 
 // NewRouter creates a new router with all API routes configured
@@ -51,6 +52,10 @@ func NewRouterWithConfig(cfg RouterConfig) http.Handler {
 	// Set URL validator if provided
 	if cfg.URLValidator != nil {
 		h.SetURLValidator(cfg.URLValidator)
+	}
+
+	if cfg.Challenger != nil {
+		h.SetChallenger(cfg.Challenger)
 	}
 
 	// Public routes (no auth required)

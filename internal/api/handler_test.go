@@ -7,10 +7,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/otiai10/namazu/internal/auth"
+	"github.com/otiai10/namazu/internal/delivery/webhook"
 	"github.com/otiai10/namazu/internal/quota"
 	"github.com/otiai10/namazu/internal/store"
 	"github.com/otiai10/namazu/internal/subscription"
@@ -1408,4 +1410,478 @@ func TestUpdateSubscription_WithURLValidation(t *testing.T) {
 			t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
 		}
 	})
+}
+
+// Tests for webhook secret generation
+
+func TestCreateSubscription_GeneratesSecret(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+
+	body := `{
+		"name": "Webhook Sub",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// CREATE response should return the full unmasked secret
+	expectedSecretLen := len(webhook.SecretPrefix) + webhook.SecretLength*2
+	if len(response.Delivery.Secret) != expectedSecretLen {
+		t.Fatalf("expected secret length %d, got %d (secret=%q)", expectedSecretLen, len(response.Delivery.Secret), response.Delivery.Secret)
+	}
+
+	if response.Delivery.Secret[:len(webhook.SecretPrefix)] != webhook.SecretPrefix {
+		t.Errorf("expected secret to start with %q, got %q", webhook.SecretPrefix, response.Delivery.Secret[:len(webhook.SecretPrefix)])
+	}
+
+	if response.Delivery.SignVersion != "v0" {
+		t.Errorf("expected sign_version 'v0', got %q", response.Delivery.SignVersion)
+	}
+
+	if response.Delivery.SecretPrefix != response.Delivery.Secret[:8] {
+		t.Errorf("expected secret_prefix %q, got %q", response.Delivery.Secret[:8], response.Delivery.SecretPrefix)
+	}
+}
+
+func TestCreateSubscription_IgnoresClientSecret(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+
+	body := `{
+		"name": "Webhook Sub",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook",
+			"secret": "client-supplied-secret"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// Server should override the client-supplied secret
+	if response.Delivery.Secret == "client-supplied-secret" {
+		t.Error("server should not use client-supplied secret")
+	}
+
+	if response.Delivery.Secret[:len(webhook.SecretPrefix)] != webhook.SecretPrefix {
+		t.Errorf("expected server-generated secret starting with %q", webhook.SecretPrefix)
+	}
+}
+
+func TestGetSubscription_MasksSecret(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	generatedSecret := "nmz_abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
+	subRepo.subscriptions["sub-1"] = subscription.Subscription{
+		ID:   "sub-1",
+		Name: "Test Sub",
+		Delivery: subscription.DeliveryConfig{
+			Type:         "webhook",
+			URL:          "https://example.com",
+			Secret:       generatedSecret,
+			SecretPrefix: "nmz_abcd",
+			SignVersion:  "v0",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions/sub-1", nil)
+	rec := httptest.NewRecorder()
+
+	handler.GetSubscription(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var response SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// GET response should return masked secret
+	if response.Delivery.Secret == generatedSecret {
+		t.Error("GET response should not return unmasked secret")
+	}
+
+	if !strings.Contains(response.Delivery.Secret, "...") {
+		t.Errorf("expected masked secret to contain '...', got %q", response.Delivery.Secret)
+	}
+}
+
+func TestListSubscriptions_MasksSecrets(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	generatedSecret := "nmz_abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
+	subRepo.subscriptions["sub-1"] = subscription.Subscription{
+		ID:   "sub-1",
+		Name: "Test Sub 1",
+		Delivery: subscription.DeliveryConfig{
+			Type:         "webhook",
+			URL:          "https://example.com/1",
+			Secret:       generatedSecret,
+			SecretPrefix: "nmz_abcd",
+			SignVersion:  "v0",
+		},
+	}
+	subRepo.subscriptions["sub-2"] = subscription.Subscription{
+		ID:   "sub-2",
+		Name: "Test Sub 2",
+		Delivery: subscription.DeliveryConfig{
+			Type:         "webhook",
+			URL:          "https://example.com/2",
+			Secret:       generatedSecret,
+			SecretPrefix: "nmz_abcd",
+			SignVersion:  "v0",
+		},
+	}
+
+	handler := NewHandler(subRepo, eventRepo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/subscriptions", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ListSubscriptions(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var response []SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	for _, sub := range response {
+		if sub.Delivery.Secret == generatedSecret {
+			t.Errorf("LIST response should not return unmasked secret for %s", sub.ID)
+		}
+		if !strings.Contains(sub.Delivery.Secret, "...") {
+			t.Errorf("expected masked secret to contain '...' for %s, got %q", sub.ID, sub.Delivery.Secret)
+		}
+	}
+}
+
+func TestUpdateSubscription_PreservesSecret(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+
+	// First, create a webhook subscription to get a server-generated secret
+	createBody := `{
+		"name": "Original Name",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createRec := httptest.NewRecorder()
+
+	handler.CreateSubscription(createRec, createReq)
+
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("failed to create subscription: %d %s", createRec.Code, createRec.Body.String())
+	}
+
+	var createResponse SubscriptionResponse
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createResponse); err != nil {
+		t.Fatalf("failed to unmarshal create response: %v", err)
+	}
+
+	originalSecret := createResponse.Delivery.Secret
+	subID := createResponse.ID
+
+	// Now update the subscription with a new name and URL
+	updateBody := `{
+		"name": "Updated Name",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://new-example.com/webhook"
+		}
+	}`
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/subscriptions/"+subID, bytes.NewBufferString(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRec := httptest.NewRecorder()
+
+	handler.UpdateSubscription(updateRec, updateReq)
+
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("failed to update subscription: %d %s", updateRec.Code, updateRec.Body.String())
+	}
+
+	// Verify the secret is preserved in the repository
+	stored, err := subRepo.Get(context.Background(), subID)
+	if err != nil {
+		t.Fatalf("failed to get subscription from repo: %v", err)
+	}
+
+	if stored.Delivery.Secret != originalSecret {
+		t.Errorf("expected secret to be preserved as %q, got %q", originalSecret, stored.Delivery.Secret)
+	}
+
+	if stored.Delivery.SignVersion != "v0" {
+		t.Errorf("expected sign_version to be preserved as 'v0', got %q", stored.Delivery.SignVersion)
+	}
+}
+
+// mockChallenger implements Challenger for testing
+type mockChallenger struct {
+	result webhook.ChallengeResult
+}
+
+func (m *mockChallenger) VerifyURL(ctx context.Context, url, secret string) webhook.ChallengeResult {
+	return m.result
+}
+
+func TestCreateSubscription_VerifiesWebhookURL(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+	handler.SetChallenger(&mockChallenger{
+		result: webhook.ChallengeResult{Success: true, ResponseTime: 100 * time.Millisecond},
+	})
+
+	body := `{
+		"name": "Verified Webhook",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if !response.Delivery.Verified {
+		t.Error("expected Verified to be true after successful challenge")
+	}
+}
+
+func TestCreateSubscription_RejectsUnverifiableURL(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+	handler.SetChallenger(&mockChallenger{
+		result: webhook.ChallengeResult{
+			Success:      false,
+			ErrorMessage: "challenge response does not match",
+			ResponseTime: 50 * time.Millisecond,
+		},
+	})
+
+	body := `{
+		"name": "Unverifiable Webhook",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/bad-webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+
+	var errResp ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("failed to unmarshal error response: %v", err)
+	}
+
+	if errResp.Error == "" {
+		t.Error("expected error message in response")
+	}
+}
+
+func TestCreateSubscription_SkipsVerificationWithoutChallenger(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+	// No challenger set
+
+	body := `{
+		"name": "No Challenger Webhook",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.CreateSubscription(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response SubscriptionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if response.Delivery.Verified {
+		t.Error("expected Verified to be false without challenger")
+	}
+}
+
+func TestUpdateSubscription_ReVerifiesOnURLChange(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+	handler := NewHandler(subRepo, eventRepo)
+	handler.SetChallenger(&mockChallenger{
+		result: webhook.ChallengeResult{Success: true, ResponseTime: 100 * time.Millisecond},
+	})
+
+	subRepo.subscriptions["sub-1"] = subscription.Subscription{
+		ID:   "sub-1",
+		Name: "Original",
+		Delivery: subscription.DeliveryConfig{
+			Type:         "webhook",
+			URL:          "https://old.example.com/webhook",
+			Secret:       "nmz_testsecret1234567890",
+			SecretPrefix: "nmz_test",
+			SignVersion:  "v0",
+			Verified:     true,
+		},
+	}
+
+	body := `{
+		"name": "Updated",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://new.example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPut, "/api/subscriptions/sub-1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.UpdateSubscription(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	stored, err := subRepo.Get(context.Background(), "sub-1")
+	if err != nil {
+		t.Fatalf("failed to get subscription: %v", err)
+	}
+
+	if !stored.Delivery.Verified {
+		t.Error("expected Verified to be true after successful re-verification")
+	}
+}
+
+func TestUpdateSubscription_SkipsVerificationOnSameURL(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	challengeCalled := false
+	handler := NewHandler(subRepo, eventRepo)
+	handler.SetChallenger(&mockChallenger{
+		result: webhook.ChallengeResult{
+			Success:      false,
+			ErrorMessage: "should not be called",
+		},
+	})
+	_ = challengeCalled
+
+	subRepo.subscriptions["sub-1"] = subscription.Subscription{
+		ID:   "sub-1",
+		Name: "Original",
+		Delivery: subscription.DeliveryConfig{
+			Type:         "webhook",
+			URL:          "https://same.example.com/webhook",
+			Secret:       "nmz_testsecret1234567890",
+			SecretPrefix: "nmz_test",
+			SignVersion:  "v0",
+			Verified:     true,
+		},
+	}
+
+	body := `{
+		"name": "Updated Name Only",
+		"delivery": {
+			"type": "webhook",
+			"url": "https://same.example.com/webhook"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPut, "/api/subscriptions/sub-1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.UpdateSubscription(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	stored, err := subRepo.Get(context.Background(), "sub-1")
+	if err != nil {
+		t.Fatalf("failed to get subscription: %v", err)
+	}
+
+	if !stored.Delivery.Verified {
+		t.Error("expected Verified to remain true when URL unchanged")
+	}
 }

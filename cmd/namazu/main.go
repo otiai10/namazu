@@ -15,6 +15,7 @@ import (
 	"github.com/otiai10/namazu/internal/app"
 	"github.com/otiai10/namazu/internal/auth"
 	"github.com/otiai10/namazu/internal/config"
+	"github.com/otiai10/namazu/internal/delivery/webhook"
 	"github.com/otiai10/namazu/internal/quota"
 	"github.com/otiai10/namazu/internal/store"
 	"github.com/otiai10/namazu/internal/subscription"
@@ -131,6 +132,7 @@ func main() {
 			TokenVerifier:    tokenVerifier,
 			UserRepo:         userRepo,
 			QuotaChecker:     quotaChecker,
+			Challenger:       webhook.NewChallenger(10 * time.Second),
 		}
 		handler := api.NewRouterWithConfig(routerCfg)
 

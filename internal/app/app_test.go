@@ -1337,3 +1337,87 @@ func TestApp_Retry(t *testing.T) {
 		}
 	})
 }
+
+func TestApp_FilterUnverifiedSubscriptions(t *testing.T) {
+	t.Run("skips unverified v0 subscriptions", func(t *testing.T) {
+		cfg := &config.Config{
+			Source: config.SourceConfig{
+				Type:     "p2pquake",
+				Endpoint: "ws://example.com/ws",
+			},
+		}
+
+		subs := []subscription.Subscription{
+			{
+				Name: "Verified Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:        "webhook",
+					URL:         "https://verified.example.com",
+					Secret:      "secret1",
+					SignVersion: "v0",
+					Verified:    true,
+				},
+			},
+			{
+				Name: "Unverified Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:        "webhook",
+					URL:         "https://unverified.example.com",
+					Secret:      "secret2",
+					SignVersion: "v0",
+					Verified:    false,
+				},
+			},
+			{
+				Name: "Legacy Webhook",
+				Delivery: subscription.DeliveryConfig{
+					Type:        "webhook",
+					URL:         "https://legacy.example.com",
+					Secret:      "secret3",
+					SignVersion: "",
+					Verified:    false,
+				},
+			},
+		}
+		repo := newMockRepository(subs)
+
+		app := NewApp(cfg, repo)
+		mockSender := newMockSender()
+		app.sender = mockSender
+
+		event := &mockEvent{
+			id:       "test-unverified-1",
+			severity: 50,
+			source:   "p2pquake",
+			rawJSON:  `{"_id":"test-unverified-1"}`,
+		}
+
+		ctx := context.Background()
+		app.handleEvent(ctx, event)
+
+		calls := mockSender.GetSendAllCalls()
+		if len(calls) != 1 {
+			t.Fatalf("Expected 1 SendAll call, got %d", len(calls))
+		}
+
+		// Should include verified v0 and legacy (no sign version), but not unverified v0
+		if len(calls[0].targets) != 2 {
+			t.Errorf("Expected 2 targets (verified + legacy), got %d", len(calls[0].targets))
+		}
+
+		targetURLs := make(map[string]bool)
+		for _, target := range calls[0].targets {
+			targetURLs[target.URL] = true
+		}
+
+		if !targetURLs["https://verified.example.com"] {
+			t.Error("expected verified webhook to be included")
+		}
+		if !targetURLs["https://legacy.example.com"] {
+			t.Error("expected legacy webhook to be included")
+		}
+		if targetURLs["https://unverified.example.com"] {
+			t.Error("expected unverified v0 webhook to be excluded")
+		}
+	})
+}

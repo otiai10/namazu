@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/otiai10/namazu/internal/auth"
+	"github.com/otiai10/namazu/internal/delivery/webhook"
 	"github.com/otiai10/namazu/internal/user"
 )
 
@@ -227,4 +229,68 @@ func TestNewRouterWithConfig_ProtectedSubscriptionRoutes(t *testing.T) {
 			t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
 		}
 	})
+}
+
+// routerMockChallenger implements Challenger for router tests
+type routerMockChallenger struct {
+	result webhook.ChallengeResult
+	called bool
+}
+
+func (m *routerMockChallenger) VerifyURL(ctx context.Context, url, secret string) webhook.ChallengeResult {
+	m.called = true
+	return m.result
+}
+
+func TestNewRouterWithConfig_ChallengerWired(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	challenger := &routerMockChallenger{
+		result: webhook.ChallengeResult{Success: false, ErrorMessage: "challenge failed"},
+	}
+
+	cfg := RouterConfig{
+		SubscriptionRepo: subRepo,
+		EventRepo:        eventRepo,
+		Challenger:       challenger,
+	}
+
+	router := NewRouterWithConfig(cfg)
+
+	body := `{"name":"Test","delivery":{"type":"webhook","url":"https://example.com/hook"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if !challenger.called {
+		t.Error("expected challenger to be called when set via RouterConfig")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d for failed challenge, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestNewRouterWithConfig_NilChallengerSkipsVerification(t *testing.T) {
+	subRepo := newMockSubscriptionRepo()
+	eventRepo := newMockEventRepo()
+
+	cfg := RouterConfig{
+		SubscriptionRepo: subRepo,
+		EventRepo:        eventRepo,
+		Challenger:       nil,
+	}
+
+	router := NewRouterWithConfig(cfg)
+
+	body := `{"name":"Test","delivery":{"type":"webhook","url":"https://example.com/hook"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/subscriptions", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status %d without challenger, got %d", http.StatusCreated, rec.Code)
+	}
 }

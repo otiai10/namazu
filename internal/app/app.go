@@ -225,6 +225,11 @@ func filterWebhookSubscriptions(subs []subscription.Subscription, event source.E
 		if sub.Delivery.Type != "webhook" {
 			continue
 		}
+		// Skip unverified v0 subscriptions
+		if sub.Delivery.SignVersion == "v0" && !sub.Delivery.Verified {
+			log.Printf("Subscription [%s]: skipped (unverified v0)", sub.Name)
+			continue
+		}
 		// Check filter - skip if event doesn't match
 		if sub.Filter != nil && !sub.Filter.Matches(event) {
 			log.Printf("Subscription [%s]: filtered out (MinScale=%d, Prefectures=%v)",
@@ -234,9 +239,10 @@ func filterWebhookSubscriptions(subs []subscription.Subscription, event source.E
 		targets = append(targets, deliveryTarget{
 			sub: sub,
 			target: webhook.Target{
-				URL:    sub.Delivery.URL,
-				Secret: sub.Delivery.Secret,
-				Name:   sub.Name,
+				URL:         sub.Delivery.URL,
+				Secret:      sub.Delivery.Secret,
+				Name:        sub.Name,
+				SignVersion: sub.Delivery.SignVersion,
 			},
 		})
 	}

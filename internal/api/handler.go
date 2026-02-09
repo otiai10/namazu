@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/otiai10/namazu/internal/auth"
+	"github.com/otiai10/namazu/internal/delivery/webhook"
 	"github.com/otiai10/namazu/internal/quota"
 	"github.com/otiai10/namazu/internal/store"
 	"github.com/otiai10/namazu/internal/subscription"
@@ -52,6 +53,11 @@ type URLValidator interface {
 	ValidateWebhookURL(url string) error
 }
 
+// Challenger verifies webhook URLs via challenge-response protocol
+type Challenger interface {
+	VerifyURL(ctx context.Context, url, secret string) webhook.ChallengeResult
+}
+
 // Handler contains the HTTP handlers for the API
 type Handler struct {
 	subscriptionRepo subscription.Repository
@@ -59,6 +65,7 @@ type Handler struct {
 	userRepo         user.Repository
 	quotaChecker     quota.QuotaChecker
 	urlValidator     URLValidator
+	challenger       Challenger
 }
 
 // NewHandler creates a new Handler instance (backward compatible, no quota checking)
@@ -99,6 +106,10 @@ func (h *Handler) SetURLValidator(v URLValidator) {
 	h.urlValidator = v
 }
 
+func (h *Handler) SetChallenger(c Challenger) {
+	h.challenger = c
+}
+
 // CreateSubscription handles POST /api/subscriptions
 func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -128,6 +139,30 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 			writeError(w, "invalid webhook URL: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+	}
+
+	// Generate server-side secret for webhook subscriptions
+	var generatedSecret string
+	if req.Delivery.Type == "webhook" {
+		secret, err := webhook.GenerateSecret()
+		if err != nil {
+			writeError(w, "failed to generate webhook secret", http.StatusInternalServerError)
+			return
+		}
+		generatedSecret = secret
+		req.Delivery.Secret = secret
+		req.Delivery.SecretPrefix = webhook.SecretPrefixFromSecret(secret)
+		req.Delivery.SignVersion = "v0"
+	}
+
+	// Verify webhook URL via challenge
+	if req.Delivery.Type == "webhook" && h.challenger != nil {
+		challengeResult := h.challenger.VerifyURL(r.Context(), req.Delivery.URL, req.Delivery.Secret)
+		if !challengeResult.Success {
+			writeError(w, "webhook URL verification failed: "+challengeResult.ErrorMessage, http.StatusBadRequest)
+			return
+		}
+		req.Delivery.Verified = true
 	}
 
 	sub := subscription.Subscription{
@@ -161,10 +196,15 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseDelivery := copyDeliveryConfig(sub.Delivery)
+	if generatedSecret != "" {
+		responseDelivery.Secret = generatedSecret
+	}
+
 	response := SubscriptionResponse{
 		ID:       id,
 		Name:     sub.Name,
-		Delivery: sub.Delivery,
+		Delivery: responseDelivery,
 		Filter:   sub.Filter,
 	}
 
@@ -284,11 +324,29 @@ func (h *Handler) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	delivery := copyDeliveryConfig(req.Delivery)
+	// Preserve server-generated secret
+	delivery.Secret = existing.Delivery.Secret
+	delivery.SecretPrefix = existing.Delivery.SecretPrefix
+	delivery.SignVersion = existing.Delivery.SignVersion
+
+	// Re-verify URL if changed
+	if existing.Delivery.URL != req.Delivery.URL && h.challenger != nil {
+		challengeResult := h.challenger.VerifyURL(r.Context(), req.Delivery.URL, existing.Delivery.Secret)
+		if !challengeResult.Success {
+			writeError(w, "webhook URL verification failed: "+challengeResult.ErrorMessage, http.StatusBadRequest)
+			return
+		}
+		delivery.Verified = true
+	} else {
+		delivery.Verified = existing.Delivery.Verified
+	}
+
 	sub := subscription.Subscription{
 		ID:       id,
 		UserID:   existing.UserID, // Preserve the original owner
 		Name:     req.Name,
-		Delivery: copyDeliveryConfig(req.Delivery),
+		Delivery: delivery,
 		Filter:   copyFilterConfig(req.Filter),
 	}
 
@@ -421,10 +479,12 @@ func extractIDFromPath(path, prefix string) string {
 }
 
 func subscriptionToResponse(sub subscription.Subscription) SubscriptionResponse {
+	maskedDelivery := copyDeliveryConfig(sub.Delivery)
+	maskedDelivery.Secret = webhook.MaskSecret(sub.Delivery.Secret)
 	return SubscriptionResponse{
 		ID:       sub.ID,
 		Name:     sub.Name,
-		Delivery: sub.Delivery,
+		Delivery: maskedDelivery,
 		Filter:   sub.Filter,
 	}
 }
@@ -458,9 +518,12 @@ func writeError(w http.ResponseWriter, message string, status int) {
 // copyDeliveryConfig creates an immutable copy of DeliveryConfig
 func copyDeliveryConfig(d subscription.DeliveryConfig) subscription.DeliveryConfig {
 	return subscription.DeliveryConfig{
-		Type:   d.Type,
-		URL:    d.URL,
-		Secret: d.Secret,
+		Type:         d.Type,
+		URL:          d.URL,
+		Secret:       d.Secret,
+		SecretPrefix: d.SecretPrefix,
+		Verified:     d.Verified,
+		SignVersion:  d.SignVersion,
 	}
 }
 
