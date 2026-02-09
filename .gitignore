@@ -16,16 +16,12 @@ tmp
 # OS
 .DS_Store
 
-# Environment variables (local development)
-# .env.*.example はコミットする（テンプレート）
-.env
-.env.localdev
-.env.test
-.env.production
-
-# Compose environment (local development)
+# Environment variables
 # .env.compose.example はコミットする（テンプレート）
+# ローカル開発は compose 経由のみ。.env.compose に集約。
+.env
 .env.compose
+.env.production
 
 # GCP credentials (never commit!)
 service-account.json

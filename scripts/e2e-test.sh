@@ -24,10 +24,19 @@ NC='\033[0m' # No Color
 API_PORT=18080
 WEBHOOK_PORT=19090
 EMULATOR_UI_PORT=4000
-FIRESTORE_PORT=8085
+FIRESTORE_PORT=8081
 AUTH_PORT=9099
 NAMAZU_PID=""
 WEBHOOK_PID=""
+
+# Detect compose command ($COMPOSE_CMD or podman compose)
+if command -v docker &> /dev/null && $COMPOSE_CMD version &> /dev/null; then
+    COMPOSE_CMD="$COMPOSE_CMD"
+elif command -v podman &> /dev/null && podman compose version &> /dev/null; then
+    COMPOSE_CMD="podman compose"
+else
+    COMPOSE_CMD=""
+fi
 
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
@@ -35,7 +44,7 @@ cleanup() {
     [ -n "$WEBHOOK_PID" ] && kill $WEBHOOK_PID 2>/dev/null || true
     # Stop Firebase Emulator
     if [ "$USE_EMULATOR" = true ]; then
-        docker compose down 2>/dev/null || true
+        $COMPOSE_CMD down 2>/dev/null || true
     fi
     # Kill any remaining processes on our ports
     lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
@@ -74,7 +83,7 @@ elif [ "$MODE" = "real" ]; then
     USE_EMULATOR=false
 elif [ "$MODE" = "auto" ]; then
     # Check if docker/podman compose is available
-    if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+    if [ -n "$COMPOSE_CMD" ]; then
         USE_EMULATOR=true
     else
         log_warn "Docker/Podman Compose not found, using real Firestore with --test-mode"
@@ -91,27 +100,27 @@ echo ""
 # 1. Start Firebase Emulators via Docker Compose (if using emulator mode)
 if [ "$USE_EMULATOR" = true ]; then
     log_info "Starting Firebase Emulators via Docker Compose..."
-    docker compose up -d firebase-emulators > /tmp/emulator-e2e.log 2>&1
+    $COMPOSE_CMD up -d firebase-emulators > /tmp/emulator-e2e.log 2>&1
 
     # Wait for all emulator ports to be ready
     log_info "Waiting for Emulator UI (port $EMULATOR_UI_PORT)..."
     if ! wait_for_port $EMULATOR_UI_PORT 60; then
         log_error "Emulator UI failed to start"
-        docker compose logs firebase-emulators
+        $COMPOSE_CMD logs firebase-emulators
         exit 1
     fi
 
     log_info "Waiting for Firestore (port $FIRESTORE_PORT)..."
     if ! wait_for_port $FIRESTORE_PORT 30; then
         log_error "Firestore Emulator failed to start"
-        docker compose logs firebase-emulators
+        $COMPOSE_CMD logs firebase-emulators
         exit 1
     fi
 
     log_info "Waiting for Auth (port $AUTH_PORT)..."
     if ! wait_for_port $AUTH_PORT 30; then
         log_error "Auth Emulator failed to start"
-        docker compose logs firebase-emulators
+        $COMPOSE_CMD logs firebase-emulators
         exit 1
     fi
 
@@ -144,8 +153,11 @@ if [ "$USE_EMULATOR" = true ]; then
     NAMAZU_API_ADDR=":$API_PORT" \
     go run ./backend/cmd/namazu/ --test-mode > /tmp/namazu-e2e.log 2>&1 &
 else
-    # Use real Firestore from .env.localdev
-    source .env.localdev 2>/dev/null || true
+    # Use real Firestore (env vars can be overridden via .env.compose)
+    source .env.compose 2>/dev/null || true
+    NAMAZU_SOURCE_ENDPOINT="${NAMAZU_SOURCE_ENDPOINT:-wss://api-realtime-sandbox.p2pquake.net/v2/ws}" \
+    NAMAZU_STORE_PROJECT_ID="${NAMAZU_STORE_PROJECT_ID:-namazu-test}" \
+    NAMAZU_STORE_DATABASE="${NAMAZU_STORE_DATABASE:-(default)}" \
     NAMAZU_API_ADDR=":$API_PORT" \
     go run ./backend/cmd/namazu/ --test-mode > /tmp/namazu-e2e.log 2>&1 &
 fi
