@@ -5,6 +5,7 @@ import (
 
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/artifactregistry"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/compute"
+	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/firebaserules"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/firestore"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/projects"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/serviceaccount"
@@ -52,6 +53,7 @@ func main() {
 			"compute":          "compute.googleapis.com",
 			"artifactregistry": "artifactregistry.googleapis.com",
 			"firestore":        "firestore.googleapis.com",
+			"firebaserules":    "firebaserules.googleapis.com",
 			"iam":              "iam.googleapis.com",
 		}
 
@@ -99,6 +101,39 @@ func main() {
 			ConcurrencyMode:          pulumi.String("OPTIMISTIC"),
 			AppEngineIntegrationMode: pulumi.String("DISABLED"),
 		}, pulumi.DependsOn(apiDeps))
+		if err != nil {
+			return err
+		}
+
+		// Firestore Security Rules: allow authenticated users to read events
+		firestoreRulesContent := `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /events/{eventId} {
+      allow read: if request.auth != null;
+    }
+  }
+}`
+		ruleset, err := firebaserules.NewRuleset(ctx, fmt.Sprintf("%s-firestore-ruleset", namePrefix), &firebaserules.RulesetArgs{
+			Project: pulumi.String(project),
+			Source: &firebaserules.RulesetSourceArgs{
+				Files: firebaserules.RulesetSourceFileArray{
+					&firebaserules.RulesetSourceFileArgs{
+						Name:    pulumi.String("firestore.rules"),
+						Content: pulumi.String(firestoreRulesContent),
+					},
+				},
+			},
+		}, pulumi.DependsOn([]pulumi.Resource{firestoreDB}))
+		if err != nil {
+			return err
+		}
+
+		_, err = firebaserules.NewRelease(ctx, fmt.Sprintf("%s-firestore-rules-release", namePrefix), &firebaserules.ReleaseArgs{
+			Name:        pulumi.Sprintf("cloud.firestore/databases/%s", dbName),
+			RulesetName: ruleset.Name,
+			Project:     pulumi.String(project),
+		}, pulumi.DependsOn([]pulumi.Resource{ruleset}))
 		if err != nil {
 			return err
 		}
