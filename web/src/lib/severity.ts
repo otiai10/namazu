@@ -1,36 +1,27 @@
 /**
  * Maps normalized severity values (10-100) stored in Firestore EventRecord
- * to Japanese seismic intensity display strings.
+ * to Japanese seismic intensity display strings and color classes.
  * NOTE: These are NOT the raw P2P scale values (10-70). See ScaleToSeverity in Go backend.
  */
+
+const SEVERITY_MAP: Record<number, { display: string; colorClass: string }> = {
+  10:  { display: '1',  colorClass: 'bg-earthquake-1' },
+  20:  { display: '2',  colorClass: 'bg-earthquake-2' },
+  30:  { display: '3',  colorClass: 'bg-earthquake-3' },
+  40:  { display: '4',  colorClass: 'bg-earthquake-4' },
+  50:  { display: '5弱', colorClass: 'bg-earthquake-5weak' },
+  60:  { display: '5強', colorClass: 'bg-earthquake-5strong' },
+  70:  { display: '6弱', colorClass: 'bg-earthquake-6weak' },
+  80:  { display: '6強', colorClass: 'bg-earthquake-6strong' },
+  100: { display: '7',  colorClass: 'bg-earthquake-7' },
+}
+
 export function severityToDisplay(severity: number): string {
-  switch (severity) {
-    case 10: return '1'
-    case 20: return '2'
-    case 30: return '3'
-    case 40: return '4'
-    case 50: return '5弱'
-    case 60: return '5強'
-    case 70: return '6弱'
-    case 80: return '6強'
-    case 100: return '7'
-    default: return String(severity)
-  }
+  return SEVERITY_MAP[severity]?.display ?? String(severity)
 }
 
 export function severityToColorClass(severity: number): string {
-  switch (severity) {
-    case 10: return 'bg-earthquake-1'
-    case 20: return 'bg-earthquake-2'
-    case 30: return 'bg-earthquake-3'
-    case 40: return 'bg-earthquake-4'
-    case 50: return 'bg-earthquake-5weak'
-    case 60: return 'bg-earthquake-5strong'
-    case 70: return 'bg-earthquake-6weak'
-    case 80: return 'bg-earthquake-6strong'
-    case 100: return 'bg-earthquake-7'
-    default: return 'bg-gray-400'
-  }
+  return SEVERITY_MAP[severity]?.colorClass ?? 'bg-gray-200'
 }
 
 export function formatRelativeTime(date: Date): string {
