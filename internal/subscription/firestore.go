@@ -205,9 +205,12 @@ func subscriptionToMap(sub Subscription) map[string]interface{} {
 		"userId": sub.UserID,
 		"name":   sub.Name,
 		"delivery": map[string]interface{}{
-			"type":   sub.Delivery.Type,
-			"url":    sub.Delivery.URL,
-			"secret": sub.Delivery.Secret,
+			"type":          sub.Delivery.Type,
+			"url":           sub.Delivery.URL,
+			"secret":        sub.Delivery.Secret,
+			"secret_prefix": sub.Delivery.SecretPrefix,
+			"verified":      sub.Delivery.Verified,
+			"sign_version":  sub.Delivery.SignVersion,
 		},
 	}
 
@@ -246,6 +249,15 @@ func documentToSubscription(doc *firestore.DocumentSnapshot) (Subscription, erro
 		}
 		if secret, ok := delivery["secret"].(string); ok {
 			sub.Delivery.Secret = secret
+		}
+		if secretPrefix, ok := delivery["secret_prefix"].(string); ok {
+			sub.Delivery.SecretPrefix = secretPrefix
+		}
+		if verified, ok := delivery["verified"].(bool); ok {
+			sub.Delivery.Verified = verified
+		}
+		if signVersion, ok := delivery["sign_version"].(string); ok {
+			sub.Delivery.SignVersion = signVersion
 		}
 	}
 
