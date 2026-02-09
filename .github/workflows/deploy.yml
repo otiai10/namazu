@@ -50,10 +50,16 @@ jobs:
           fi
           echo "environment=${ENV}" >> $GITHUB_OUTPUT
 
-          # Firebase tenant ID per environment
+          # Per-environment config
           case "$ENV" in
-            prod) echo "tenant_id=prod-c4rwr" >> $GITHUB_OUTPUT ;;
-            *)    echo "tenant_id=stage-lctnv" >> $GITHUB_OUTPUT ;;
+            prod)
+              echo "tenant_id=prod-c4rwr" >> $GITHUB_OUTPUT
+              echo "firestore_database=namazu-prod" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "tenant_id=stage-lctnv" >> $GITHUB_OUTPUT
+              echo "firestore_database=namazu-stg" >> $GITHUB_OUTPUT
+              ;;
           esac
 
       - name: Authenticate to Google Cloud
@@ -93,6 +99,7 @@ jobs:
             VITE_FIREBASE_AUTH_DOMAIN=namazu-live.firebaseapp.com
             VITE_FIREBASE_PROJECT_ID=namazu-live
             VITE_FIREBASE_TENANT_ID=${{ steps.env.outputs.tenant_id }}
+            VITE_FIRESTORE_DATABASE=${{ steps.env.outputs.firestore_database }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
