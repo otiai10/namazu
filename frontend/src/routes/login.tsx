@@ -37,7 +37,7 @@ function LoginPage() {
         {/* Logo */}
         <div className="text-center">
           <h1 className="text-4xl font-bold text-primary-600">namazu</h1>
-          <p className="mt-2 text-gray-500">地震速報 Webhook 中継サービス</p>
+          <p className="mt-2 text-sm sm:text-base text-gray-500">地震速報 Webhook 中継サービス</p>
         </div>
 
         {/* Description */}
@@ -62,7 +62,7 @@ function LoginPage() {
         </div>
 
         {/* Features */}
-        <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
           <div className="p-3">
             <BoltIcon className="w-6 h-6 text-yellow-500 mx-auto mb-1" />
             <p className="text-xs text-gray-500">リアルタイム配信</p>

@@ -13,12 +13,12 @@ export function SubscriptionCard({
 }: SubscriptionCardProps) {
   return (
     <div className="card hover:shadow-md transition-shadow">
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-gray-900">
             {subscription.name}
           </h3>
-          <p className="text-sm text-gray-500 font-mono mt-1 truncate max-w-lg">
+          <p className="text-sm text-gray-500 font-mono mt-1 truncate">
             {subscription.delivery.url}
           </p>
           <div className="flex flex-wrap gap-2 mt-3">
@@ -42,17 +42,19 @@ export function SubscriptionCard({
             )}
           </div>
         </div>
-        <div className="flex space-x-2 ml-4">
+        <div className="flex space-x-2 self-end sm:self-start sm:ml-4 shrink-0">
           <button
             onClick={onEdit}
             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
             title="編集"
+            aria-label="編集"
           >
             <svg
               className="w-5 h-5"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -66,12 +68,14 @@ export function SubscriptionCard({
             onClick={onDelete}
             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
             title="削除"
+            aria-label="削除"
           >
             <svg
               className="w-5 h-5"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
