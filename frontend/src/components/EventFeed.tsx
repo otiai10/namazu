@@ -53,7 +53,7 @@ export function EventFeed() {
         <span className="text-xs text-gray-400">- リアルタイム更新</span>
       </div>
 
-      <div className="max-h-[600px] overflow-y-auto divide-y divide-gray-100">
+      <div className="max-h-[400px] lg:max-h-[600px] overflow-y-auto divide-y divide-gray-100">
         {isLoading ? (
           <LoadingSpinner />
         ) : error ? (
