@@ -15,8 +15,8 @@ func TestGetLimits_FreePlan(t *testing.T) {
 func TestGetLimits_ProPlan(t *testing.T) {
 	limits := GetLimits("pro")
 
-	if limits.MaxSubscriptions != 12 {
-		t.Errorf("expected MaxSubscriptions = 12, got %d", limits.MaxSubscriptions)
+	if limits.MaxSubscriptions != 6 {
+		t.Errorf("expected MaxSubscriptions = 6, got %d", limits.MaxSubscriptions)
 	}
 }
 
@@ -41,7 +41,7 @@ func TestPlanLimitsConstants(t *testing.T) {
 		t.Errorf("FreePlanLimits.MaxSubscriptions should be 1, got %d", FreePlanLimits.MaxSubscriptions)
 	}
 
-	if ProPlanLimits.MaxSubscriptions != 12 {
+	if ProPlanLimits.MaxSubscriptions != 6 {
 		t.Errorf("ProPlanLimits.MaxSubscriptions should be 12, got %d", ProPlanLimits.MaxSubscriptions)
 	}
 }

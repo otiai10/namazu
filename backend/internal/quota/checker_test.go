@@ -104,8 +104,8 @@ func TestChecker_CanCreateSubscription_FreeUserOverLimit(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_ProUserCanCreateMany(t *testing.T) {
-	// Pro user with 10 subscriptions should be able to create more (limit is 12)
-	subs := make([]subscription.Subscription, 10)
+	// Pro user with 4 subscriptions should be able to create more (limit is 6)
+	subs := make([]subscription.Subscription, 4)
 	for i := range subs {
 		subs[i] = subscription.Subscription{ID: string(rune('1' + i)), UserID: "user1"}
 	}
@@ -123,8 +123,8 @@ func TestChecker_CanCreateSubscription_ProUserCanCreateMany(t *testing.T) {
 }
 
 func TestChecker_CanCreateSubscription_ProUserAtLimit(t *testing.T) {
-	// Pro user with 12 subscriptions should NOT be able to create more
-	subs := make([]subscription.Subscription, 12)
+	// Pro user with 6 subscriptions should NOT be able to create more
+	subs := make([]subscription.Subscription, 6)
 	for i := range subs {
 		subs[i] = subscription.Subscription{ID: string(rune(i)), UserID: "user1"}
 	}

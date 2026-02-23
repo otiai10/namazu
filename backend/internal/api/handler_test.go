@@ -1142,10 +1142,8 @@ func TestCreateSubscription_DefaultsToFreePlanWhenUserNotFound(t *testing.T) {
 	eventRepo := newMockEventRepo()
 	userRepo := newQuotaUserRepo() // Empty user repo
 
-	// Pre-populate subscriptions to hit free limit (3)
+	// Pre-populate subscriptions to hit free limit (1)
 	subRepo.subscriptions["sub-1"] = subscription.Subscription{ID: "sub-1", UserID: "unknown-uid"}
-	subRepo.subscriptions["sub-2"] = subscription.Subscription{ID: "sub-2", UserID: "unknown-uid"}
-	subRepo.subscriptions["sub-3"] = subscription.Subscription{ID: "sub-3", UserID: "unknown-uid"}
 
 	// Use real quota checker
 	quotaChecker := quota.NewChecker(subRepo)
@@ -1173,7 +1171,7 @@ func TestCreateSubscription_DefaultsToFreePlanWhenUserNotFound(t *testing.T) {
 
 	handler.CreateSubscription(rec, req)
 
-	// Should be forbidden because free limit (3) is already reached
+	// Should be forbidden because free limit (1) is already reached
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected status %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
 	}

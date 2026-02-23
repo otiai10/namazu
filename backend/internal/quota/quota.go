@@ -14,7 +14,7 @@ var (
 	FreePlanLimits = PlanLimits{MaxSubscriptions: 1}
 
 	// ProPlanLimits defines limits for pro plan users
-	ProPlanLimits = PlanLimits{MaxSubscriptions: 12}
+	ProPlanLimits = PlanLimits{MaxSubscriptions: 6}
 )
 
 // GetLimits returns limits for a plan

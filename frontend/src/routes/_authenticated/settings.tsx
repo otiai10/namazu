@@ -110,8 +110,8 @@ function SettingsPage() {
             </div>
             <p className="text-sm text-gray-500 mt-1">
               {profile?.plan === 'pro'
-                ? 'サブスクリプション 50 個まで'
-                : 'サブスクリプション 3 個まで'}
+                ? 'サブスクリプション 6 個まで'
+                : 'サブスクリプション 1 個まで'}
             </p>
           </div>
 
@@ -130,7 +130,7 @@ function SettingsPage() {
               name="Free"
               price="¥0"
               features={[
-                'サブスクリプション 3 個',
+                'サブスクリプション 1 個',
                 '全ての地震速報',
                 'フィルタ機能',
                 'リトライ機能',
@@ -141,7 +141,7 @@ function SettingsPage() {
               name="Pro"
               price="¥500/月"
               features={[
-                'サブスクリプション 50 個',
+                'サブスクリプション 6 個',
                 '全ての地震速報',
                 'フィルタ機能',
                 'リトライ機能',

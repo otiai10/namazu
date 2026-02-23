@@ -4,7 +4,7 @@
 
 | 機能 | Free | Pro (¥500/月) |
 |------|------|---------------|
-| **サブスクリプション数** | 1 | 12 |
+| **サブスクリプション数** | 1 | 6 |
 | **配信先** | Webhook のみ | Webhook, Slack, Discord, LINE, Email |
 | **フィルタ** | 基本（震度、地域） | 詳細（震源深さ、マグニチュード等） |
 | **カスタムペイロード** | ✗ | ✓ |
@@ -44,7 +44,7 @@
 ```go
 var (
     FreePlanLimits = PlanLimits{MaxSubscriptions: 1}
-    ProPlanLimits  = PlanLimits{MaxSubscriptions: 12}
+    ProPlanLimits  = PlanLimits{MaxSubscriptions: 6}
 )
 ```
 

@@ -186,7 +186,7 @@ function BillingPage() {
             )}
           </div>
           <ul className="space-y-3 mb-6">
-            <PlanFeature included>サブスクリプション 12 個</PlanFeature>
+            <PlanFeature included>サブスクリプション 6 個</PlanFeature>
             <PlanFeature included>全ての地震速報を受信</PlanFeature>
             <PlanFeature included>震度・地域フィルタ</PlanFeature>
             <PlanFeature included>自動リトライ</PlanFeature>
