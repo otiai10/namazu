@@ -6,7 +6,7 @@
 # =============================================================================
 # Stage 1: Build Frontend
 # =============================================================================
-FROM node:22-alpine AS frontend-builder
+FROM node:26.13.1-alpine AS frontend-builder
 
 # Firebase / Stripe config (public values, baked into JS bundle)
 ARG VITE_FIREBASE_API_KEY
@@ -21,7 +21,7 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
     VITE_FIRESTORE_DATABASE=$VITE_FIRESTORE_DATABASE
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install --global pnpm@9.15.0
 
 WORKDIR /app
 
